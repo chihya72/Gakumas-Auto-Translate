@@ -1,0 +1,15 @@
+# 忽略 GakumasPreTranslation 文件夹及其所有内容
+/GakumasPreTranslation/
+
+# 其他通用 Python 项目忽略项
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.env
+.venv
+env/
+venv/
+ENV/
+node_modules/
+.DS_Store
