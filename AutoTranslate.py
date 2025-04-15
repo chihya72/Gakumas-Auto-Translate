@@ -1,8 +1,8 @@
 import os
 import shutil
 import re
+import pandas as pd
 import csv
-import subprocess
 import json
 from pathlib import Path
 
@@ -100,6 +100,16 @@ def check_new_files():
         shutil.copy2(src, dst)
         print(f"已复制: {src} -> {dst}")
 
+def remove_r_tags_inplace(csv_path):
+    df = pd.read_csv(csv_path, dtype=str)
+    def clean_text(text):
+        if pd.isnull(text):
+            return text
+        # 匹配 <r\=...>内容</r> 只取内容
+        return re.sub(r'<r\\=[^>]+>(.*?)</r>', r'\1', text)
+    df['text'] = df['text'].apply(clean_text)
+    df.to_csv(csv_path, index=False, encoding='utf-8')
+
 def preprocess_txt_files():
     """预处理待翻译的txt文件"""
     # 定义路径常量
@@ -165,19 +175,23 @@ def preprocess_txt_files():
             with open(output_path, 'w', encoding='utf-8', newline='') as csvfile:
                 fieldnames = ['id', 'name', 'text', 'trans']
                 writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-                
                 writer.writeheader()
                 for row in extracted_data:
                     writer.writerow(row)
-                    
+
             print(f"已生成预处理文件: {output_path}")
-            
-            # 复制一份到csv_dict目录作为基础
+
+            # （1）生成后立刻清理标签并覆盖写回
+            remove_r_tags_inplace(output_path)
+            print(f"已去除<\\r=></r>标签: {output_path}")
+
+            # （2）再复制到csv_dict
             dict_output_path = output_path.replace("csv_orig", "csv_dict")
             shutil.copy2(output_path, dict_output_path)
             print(f"已复制到词典替换目录: {dict_output_path}")
         else:
             print(f"跳过文件 {filename}，未找到可翻译内容")
+
     
     # 预处理完成后，立即进行字典替换
     print("\n正在执行字典替换...")
