@@ -3,6 +3,7 @@ import shutil
 import re
 import csv
 import subprocess
+import json
 from pathlib import Path
 
 dump_txt_path = None  # 存储dump_txt路径的全局变量
@@ -11,10 +12,10 @@ def print_menu():
     """打印命令行菜单"""
     print("\n==== 主菜单 ====")
     print("1. 检查是否有新增未翻译文本")
-    print("2. 预处理待翻译的原始文本为csv文件")
+    print("2. 预处理待翻译的原始文本（包含自动人名替换）")  # 修改了菜单描述
     print("3. 翻译csv文件")
     print("4. 合并翻译文件")
-    print("5. 完成并清理临时文件")  # 新增的选项5
+    print("5. 完成并清理临时文件")
     print("9. 配置并检测所需目录")
     print("0. 退出程序")
 
@@ -50,6 +51,14 @@ def configure_directories():
         else:
             print(f"目录已存在: {dump_txt_path}")
             break
+    
+    # 添加：检查字典文件
+    dict_file = "./name_dictionary.json"
+    if not os.path.exists(dict_file):
+        # 如果不存在，创建一个示例字典文件
+        create_sample_dictionary(dict_file)
+        print(f"已创建示例字典文件: {dict_file}")
+        print("请编辑此文件添加需要替换的人名和称谓")
 
 def check_new_files():
     """对比是否有新增txt文件"""
@@ -74,7 +83,8 @@ def check_new_files():
     # 创建todo目录结构
     todo_dirs = [
         "./todo/untranslated/txt",
-        "./todo/untranslated/csv",
+        "./todo/untranslated/csv_orig",  # 修改为csv_orig
+        "./todo/untranslated/csv_dict",  # 新增csv_dict目录
         "./todo/translated/csv",
         "./todo/translated/txt"
     ]
@@ -94,7 +104,7 @@ def preprocess_txt_files():
     """预处理待翻译的txt文件"""
     # 定义路径常量
     source_dir = "./todo/untranslated/txt"
-    output_dir = "./todo/untranslated/csv"
+    output_dir = "./todo/untranslated/csv_orig"  # 修改为csv_orig
     
     # 创建输出目录（如果不存在）
     Path(output_dir).mkdir(parents=True, exist_ok=True)
@@ -161,8 +171,17 @@ def preprocess_txt_files():
                     writer.writerow(row)
                     
             print(f"已生成预处理文件: {output_path}")
+            
+            # 复制一份到csv_dict目录作为基础
+            dict_output_path = output_path.replace("csv_orig", "csv_dict")
+            shutil.copy2(output_path, dict_output_path)
+            print(f"已复制到词典替换目录: {dict_output_path}")
         else:
             print(f"跳过文件 {filename}，未找到可翻译内容")
+    
+    # 预处理完成后，立即进行字典替换
+    print("\n正在执行字典替换...")
+    replace_names_in_csv()
 
 def translate_csv_files():
     """处理CSV文件翻译流程"""
@@ -209,7 +228,7 @@ def translate_csv_files():
         return
 
     # 准备复制CSV文件
-    source_dir = "./todo/untranslated/csv"
+    source_dir = "./todo/untranslated/csv_dict"  # 修改为csv_dict
     target_dir = tmp_dirs[0]  # untranslated目录
     
     # 创建目标目录（如果不存在）
@@ -261,7 +280,7 @@ def merge_translations():
         print(f"多余翻译文件: {translated_files - untranslated_files}")
         return
     
-    # 步骤2: 复制CSV文件
+    # 步骤2: 复制CSV文件到临时目录
     target_csv_dir = "./todo/translated/csv"
     os.makedirs(target_csv_dir, exist_ok=True)
     
@@ -272,7 +291,72 @@ def merge_translations():
         shutil.copy2(src, dst)
         print(f"已复制: {filename}")
     
-    # 步骤3: 用户选择合并模式
+    # 步骤3: 修复使用原始未替换的text字段
+    csv_orig_dir = "./todo/untranslated/csv_orig"  # 使用csv_orig目录
+    
+    print("\n正在恢复原始text字段，保留翻译结果...")
+    for filename in translated_files:
+        # 获取原始未替换的文本
+        orig_csv_path = os.path.join(csv_orig_dir, filename)
+        translated_csv_path = os.path.join(target_csv_dir, filename)
+        
+        if not os.path.exists(orig_csv_path):
+            print(f"警告: 找不到原始文件 {filename}")
+            continue
+            
+        # 读取原始未替换的文本
+        orig_rows = []
+        with open(orig_csv_path, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            orig_rows = list(reader)
+            
+        # 读取翻译后的文本
+        trans_rows = []
+        with open(translated_csv_path, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            trans_rows = list(reader)
+            
+        # 检查文件的行数
+        # 处理译者信息行：翻译文件可能在最后添加了一行译者信息
+        has_translator_row = False
+        translator_info = None
+        if len(trans_rows) > len(orig_rows):
+            # 检查最后一行是否为译者信息行
+            last_row = trans_rows[-1]
+            if 'id' in last_row and last_row['id'] == '译者':
+                has_translator_row = True
+                # 移除译者行以进行常规比较和处理
+                translator_info = trans_rows.pop()
+                print(f"检测到译者信息行: {translator_info['id']},{translator_info.get('name', '')}")
+            
+        # 再次检查行数是否一致
+        if len(orig_rows) != len(trans_rows):
+            print(f"警告: 文件 {filename} 行数不一致（原始: {len(orig_rows)}, 翻译: {len(trans_rows)}），跳过处理")
+            continue
+            
+        # 将原始text字段复制到翻译后的文件中
+        changes = 0
+        for i, (orig_row, trans_row) in enumerate(zip(orig_rows, trans_rows)):
+            if orig_row['id'] == trans_row['id'] and orig_row['text'] != trans_row['text']:
+                trans_row['text'] = orig_row['text']  # 使用原始text字段
+                changes += 1
+                
+        # 重新添加译者行（如果存在）
+        if has_translator_row and translator_info:
+            trans_rows.append(translator_info)
+        
+        # 保存更新后的翻译文件
+        with open(translated_csv_path, 'w', encoding='utf-8', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=trans_rows[0].keys())
+            writer.writeheader()
+            writer.writerows(trans_rows)
+        
+        if changes > 0:
+            print(f"已更新文件 {filename}: 恢复了 {changes} 处原始text字段")
+        else:
+            print(f"文件 {filename} 无需更新text字段")
+    
+    # 步骤4: 用户选择合并模式
     while True:
         print("\n请选择合并模式:")
         print("1. 纯中文（仅保留翻译内容）")
@@ -288,12 +372,26 @@ def merge_translations():
         else:
             print("无效输入，请重新选择")
 
+
 def process_pure_chinese():
     """处理纯中文合并逻辑"""
     # 定义路径常量
     csv_dir = "./todo/translated/csv"
     untranslated_txt_dir = "./todo/untranslated/txt"
     output_dir = "./todo/translated/txt"
+    dict_file = "./name_dictionary.json"
+    
+    # 加载名称字典
+    name_dict = {}
+    if os.path.exists(dict_file):
+        try:
+            with open(dict_file, 'r', encoding='utf-8') as f:
+                name_dict = json.load(f)
+                print(f"已加载字典，包含 {len(name_dict)} 个替换项")
+        except Exception as e:
+            print(f"加载字典文件时出错: {e}")
+    else:
+        print(f"字典文件不存在: {dict_file}，将跳过人名翻译")
     
     # 创建输出目录
     os.makedirs(output_dir, exist_ok=True)
@@ -317,19 +415,21 @@ def process_pure_chinese():
         rows = []
         orig_texts = []
         trans_texts = []
+        names = []  # 添加保存name的列表
         with open(csv_path, 'r', encoding='utf-8') as f:
             reader = csv.DictReader(f)
             for row in reader:
                 rows.append(row['id'])
                 orig_texts.append(row['text'])
                 trans_texts.append(row['trans'])
+                names.append(row['name'] if 'name' in row else '')  # 保存name值
         
         # 读取原始文本内容
         with open(txt_path, 'r', encoding='utf-8') as f:
             content = f.read()
         
         # 进行文本替换
-        for row_id, orig, trans in zip(rows, orig_texts, trans_texts):
+        for i, (row_id, orig, trans, name) in enumerate(zip(rows, orig_texts, trans_texts, names)):
             if not orig:
                 continue
         
@@ -351,6 +451,22 @@ def process_pure_chinese():
                     flags=re.IGNORECASE
                 )
                 content = pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{trans}{m.group(2)}', content)
+                
+                # 增加：翻译name属性
+                if name and name_dict:
+                    translated_name = name
+                    for jp_name, cn_name in name_dict.items():
+                        if jp_name == name:
+                            translated_name = cn_name
+                            break
+                    
+                    if translated_name != name:
+                        # 替换name属性
+                        name_pattern = re.compile(
+                            r'(name=)(["\']?)%s\2' % re.escape(name),
+                            flags=re.IGNORECASE
+                        )
+                        content = name_pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{translated_name}{m.group(2)}', content)
         
         # 写入新文件
         with open(output_path, 'w', encoding='utf-8') as f:
@@ -370,6 +486,19 @@ def process_bilingual():
     csv_dir = "./todo/translated/csv"
     untranslated_txt_dir = "./todo/untranslated/txt"
     output_dir = "./todo/translated/txt"
+    dict_file = "./name_dictionary.json"
+    
+    # 加载名称字典
+    name_dict = {}
+    if os.path.exists(dict_file):
+        try:
+            with open(dict_file, 'r', encoding='utf-8') as f:
+                name_dict = json.load(f)
+                print(f"已加载字典，包含 {len(name_dict)} 个替换项")
+        except Exception as e:
+            print(f"加载字典文件时出错: {e}")
+    else:
+        print(f"字典文件不存在: {dict_file}，将跳过人名翻译")
     
     # 创建输出目录
     os.makedirs(output_dir, exist_ok=True)
@@ -393,19 +522,21 @@ def process_bilingual():
         rows = []
         orig_texts = []
         trans_texts = []
+        names = []  # 添加保存name的列表
         with open(csv_path, 'r', encoding='utf-8') as f:
             reader = csv.DictReader(f)
             for row in reader:
                 rows.append(row['id'])
                 orig_texts.append(row['text'])
                 trans_texts.append(row['trans'])
+                names.append(row['name'] if 'name' in row else '')  # 保存name值
         
         # 读取原始文本内容
         with open(txt_path, 'r', encoding='utf-8') as f:
             content = f.read()
         
         # 进行文本替换
-        for row_id, orig, trans in zip(rows, orig_texts, trans_texts):
+        for i, (row_id, orig, trans, name) in enumerate(zip(rows, orig_texts, trans_texts, names)):
             if not orig:
                 continue
         
@@ -440,6 +571,22 @@ def process_bilingual():
                     flags=re.IGNORECASE
                 )
                 content = pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{bilingual_text}{m.group(2)}', content)
+
+                # 增加：翻译name属性
+                if name and name_dict:
+                    translated_name = name
+                    for jp_name, cn_name in name_dict.items():
+                        if jp_name == name:
+                            translated_name = cn_name
+                            break
+                    
+                    if translated_name != name:
+                        # 替换name属性
+                        name_pattern = re.compile(
+                            r'(name=)(["\']?)%s\2' % re.escape(name),
+                            flags=re.IGNORECASE
+                        )
+                        content = name_pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{translated_name}{m.group(2)}', content)
         
         # 写入新文件
         with open(output_path, 'w', encoding='utf-8') as f:
@@ -452,9 +599,98 @@ def process_bilingual():
     print("1. 手动检查合并结果")
     print("2. 将最终文件复制回游戏目录")
 
+def replace_names_in_csv():
+    """使用字典替换CSV文件中的人名和常见称谓"""
+    # 定义路径常量
+    csv_dir = "./todo/untranslated/csv_dict"  # 修改为csv_dict
+    dict_file = "./name_dictionary.json"
     
+    # 检查字典文件是否存在
+    if not os.path.exists(dict_file):
+        print(f"未找到字典文件: {dict_file}")
+        print("跳过字典替换步骤")
+        return
     
+    # 加载字典文件
+    try:
+        with open(dict_file, 'r', encoding='utf-8') as f:
+            name_dict = json.load(f)
+            print(f"已加载字典，包含 {len(name_dict)} 个替换项")
+    except Exception as e:
+        print(f"加载字典文件时出错: {e}")
+        return
     
+    # 检查是否有CSV文件
+    csv_files = [f for f in os.listdir(csv_dir) if f.endswith(".csv")]
+    if not csv_files:
+        print("没有找到需要处理的CSV文件")
+        return
+    
+    # 处理所有CSV文件
+    processed_count = 0
+    replaced_count = 0
+    
+    for filename in csv_files:
+        file_path = os.path.join(csv_dir, filename)
+        
+        # 读取CSV文件
+        rows = []
+        with open(file_path, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            rows = list(reader)
+        
+        # 遍历每一行进行替换
+        file_replaced = 0
+        for row in rows:
+            original_text = row['text']
+            
+            # 对文本进行替换
+            replaced_text = original_text
+            for jp_term, cn_term in name_dict.items():
+                # 使用正则表达式确保完整匹配词语
+                replaced_text = re.sub(r'\b' + re.escape(jp_term) + r'\b', cn_term, replaced_text)
+                
+                # 也检查不带词边界的情况（对日文可能更合适）
+                if jp_term in replaced_text:
+                    replaced_text = replaced_text.replace(jp_term, cn_term)
+            
+            # 如果有替换，更新文本
+            if replaced_text != original_text:
+                row['text'] = replaced_text
+                file_replaced += 1
+        
+        # 只有在有实际替换时才写回文件
+        if file_replaced > 0:
+            with open(file_path, 'w', encoding='utf-8', newline='') as f:
+                writer = csv.DictWriter(f, fieldnames=rows[0].keys())
+                writer.writeheader()
+                writer.writerows(rows)
+            
+            processed_count += 1
+            replaced_count += file_replaced
+            print(f"处理文件 {filename}: 替换了 {file_replaced} 处内容")
+    
+    # 输出处理摘要
+    if processed_count > 0:
+        print(f"\n完成替换！处理了 {processed_count} 个文件，共替换 {replaced_count} 处内容")
+    else:
+        print("\n未发现需要替换的内容")
+
+def create_sample_dictionary(dict_file):
+    """创建一个示例字典文件"""
+    sample_dict = {
+        "ことね": "琴音",
+        "リーリヤ": "莉莉娅",
+        "広": "广"
+    }
+    
+    # 确保目录存在
+    os.makedirs(os.path.dirname(dict_file), exist_ok=True)
+    
+    # 写入示例字典
+    with open(dict_file, 'w', encoding='utf-8') as f:
+        json.dump(sample_dict, f, ensure_ascii=False, indent=4)
+
 def cleanup_and_copy():
     """清理临时文件并复制最终文件"""
     # 第一步：复制翻译文件到data目录
@@ -487,7 +723,8 @@ def cleanup_and_copy():
     # 第二步：清理todo目录
     todo_dirs = [
         "./todo/untranslated/txt",
-        "./todo/untranslated/csv",
+        "./todo/untranslated/csv_orig",  # 修改为csv_orig
+        "./todo/untranslated/csv_dict",  # 新增csv_dict
         "./todo/translated/csv",
         "./todo/translated/txt"
     ]
@@ -559,7 +796,7 @@ def main():
             translate_csv_files()
         elif choice == '4':
             merge_translations()
-        elif choice == '5':  # 新增选项5的处理
+        elif choice == '5':
             cleanup_and_copy()
         else:
             print("无效的输入，请重新选择")
