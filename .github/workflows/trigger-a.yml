@@ -11,13 +11,29 @@ jobs:
   notify-a:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2  # 获取上一次提交记录，用于比较变更
+
       - name: Install jq
         run: sudo apt-get update && sudo apt-get install -y jq
 
+      - name: Find changed files
+        id: changed_files
+        run: |
+          # 获取变更的文件列表
+          CHANGED_FILES=$(git diff --name-only HEAD^ HEAD | grep "^data/" | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          echo "files=$CHANGED_FILES" >> $GITHUB_OUTPUT
+          
+          # 计算变更文件数量
+          COUNT=$(echo $CHANGED_FILES | jq '. | length')
+          echo "Found $COUNT changed files in data directory"
+
       - name: Trigger Project A
         env:
-          TRIGGER_TOKEN: ${{ secrets.A_PAT }}  # 🚨 这里多了一个闭合括号！
-        run: |  # 🚨 管道符后需要缩进
+          TRIGGER_TOKEN: ${{ secrets.A_PAT }}
+        run: |
           # 构造payload
           COMMIT_MSG=$(echo '${{ github.event.head_commit.message }}' | jq -Rs .)
           PAYLOAD=$(cat <<EOF
@@ -25,7 +41,8 @@ jobs:
             "event_type": "data-updated",
             "client_payload": {
               "b_commit_sha": "${{ github.sha }}",
-              "b_commit_msg": ${COMMIT_MSG}
+              "b_commit_msg": ${COMMIT_MSG},
+              "changed_files": ${{ steps.changed_files.outputs.files }}
             }
           }
           EOF
