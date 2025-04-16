@@ -3,19 +3,22 @@ name: Trigger Translation Pipeline
 on:
   push:
     paths:
-      - 'data/**'  # 精确监控data目录变更
+      - 'data/**'
     branches:
-      - master  # 按需修改分支名
+      - master
 
 jobs:
   notify-a:
     runs-on: ubuntu-latest
     steps:
-      - name: Trigger gakumas-master-translation-pm
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Trigger Project A
         env:
-          TRIGGER_TOKEN: ${{ secrets.A_PAT }}
-        run: |
-          -          
+          TRIGGER_TOKEN: ${{ secrets.A_PAT }}  # 🚨 这里多了一个闭合括号！
+        run: |  # 🚨 管道符后需要缩进
+          # 构造payload
           COMMIT_MSG=$(echo '${{ github.event.head_commit.message }}' | jq -Rs .)
           PAYLOAD=$(cat <<EOF
           {
@@ -27,9 +30,12 @@ jobs:
           }
           EOF
           )
-          
+
+          echo "Payload content: $PAYLOAD"  # 调试输出
+
+          # 发送请求
           curl -X POST \
             -H "Authorization: token $TRIGGER_TOKEN" \
-            -H "Accept: applicationnd.github.v3+json" \
+            -H "Accept: application/vnd.github.v3+json" \
             https://api.github.com/repos/chihya72/gakumas-master-translation-pm/dispatches \
             -d "$PAYLOAD"
