@@ -1,6 +1,5 @@
 # 忽略 GakumasPreTranslation 文件夹及其所有内容
 /GakumasPreTranslation/
-/.idea/
 
 # 其他通用 Python 项目忽略项
 __pycache__/
@@ -14,3 +13,7 @@ venv/
 ENV/
 node_modules/
 .DS_Store
+
+/.idea/
+/csv_data/.idea/
+data/.idea/

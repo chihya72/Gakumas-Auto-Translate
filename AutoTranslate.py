@@ -181,14 +181,14 @@ def preprocess_txt_files():
 
             print(f"已生成预处理文件: {output_path}")
 
-            # （1）生成后立刻清理标签并覆盖写回
-            remove_r_tags_inplace(output_path)
-            print(f"已去除<\\r=></r>标签: {output_path}")
-
-            # （2）再复制到csv_dict
+            # （1）先复制到csv_dict
             dict_output_path = output_path.replace("csv_orig", "csv_dict")
             shutil.copy2(output_path, dict_output_path)
             print(f"已复制到词典替换目录: {dict_output_path}")
+
+            # （2）然后在dict文件中清理标签
+            remove_r_tags_inplace(dict_output_path)
+            print(f"已去除<\\r=></r>标签: {dict_output_path}")
         else:
             print(f"跳过文件 {filename}，未找到可翻译内容")
 
@@ -556,6 +556,9 @@ def process_bilingual():
         
             # 转义特殊字符
             escaped_orig = re.escape(orig)
+            
+            # 清理原文中的<r\=...>...</r>标签
+            clean_orig = re.sub(r'<r\\=[^>]+>(.*?)</r>', r'\1', orig)
         
             if row_id == 'select':
                 # 处理choice类型
@@ -568,7 +571,7 @@ def process_bilingual():
             elif row_id == '0000000000000':
                 # 处理message类型
                 # 分割文本为多个部分（按 \n 分割）
-                parts = orig.split("\\n")
+                parts = clean_orig.split("\\n")  # 使用清理后的原文
                 trans_parts = trans.split("\\n")
                 
                 # 生成中日双语格式：每行对应一对
@@ -739,7 +742,7 @@ def cleanup_and_copy():
         "./todo/untranslated/txt",
         "./todo/untranslated/csv_orig",  # 修改为csv_orig
         "./todo/untranslated/csv_dict",  # 新增csv_dict
-        "./todo/translated/csv",
+        # "./todo/translated/csv",  # 从删除列表中移除，将改为移动而非删除
         "./todo/translated/txt"
     ]
     
@@ -761,6 +764,32 @@ def cleanup_and_copy():
     
     if not cleaned_dirs:
         print("todo目录中没有需要清理的内容")
+    
+    # 新增：移动translated/csv文件到csv_data目录
+    csv_source_dir = "./todo/translated/csv"
+    csv_target_dir = "./csv_data"
+    moved_csv_files = []
+    
+    if os.path.exists(csv_source_dir):
+        # 确保目标目录存在
+        os.makedirs(csv_target_dir, exist_ok=True)
+        
+        # 遍历所有csv文件并移动它们
+        for filename in os.listdir(csv_source_dir):
+            src = os.path.join(csv_source_dir, filename)
+            dst = os.path.join(csv_target_dir, filename)
+            if os.path.isfile(src):
+                shutil.move(src, dst)
+                moved_csv_files.append(filename)
+        
+        if moved_csv_files:
+            print(f"已移动{len(moved_csv_files)}个CSV文件到{csv_target_dir}目录:")
+            for f in moved_csv_files:
+                print(f"- {f}")
+        else:
+            print(f"没有需要移动的CSV文件")
+    else:
+        print(f"警告: CSV文件目录不存在 - {csv_source_dir}")
 
     # 第三步：清理Gakumas的临时目录
     gakumas_tmp_dirs = [
