@@ -5,7 +5,7 @@ on:
     paths:
       - 'data/**'  # 精确监控data目录变更
     branches:
-      - main  # 按需修改分支名
+      - master  # 按需修改分支名
 
 jobs:
   notify-a:
