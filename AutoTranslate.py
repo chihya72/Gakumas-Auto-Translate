@@ -106,7 +106,10 @@ def remove_r_tags_inplace(csv_path):
         if pd.isnull(text):
             return text
         # 匹配 <r\=...>内容</r> 只取内容
-        return re.sub(r'<r\\=[^>]+>(.*?)</r>', r'\1', text)
+        text =  re.sub(r'<r\\=[^>]+>(.*?)</r>', r'\1', text)
+        # 再处理 <em\=...>内容</em>
+        text = re.sub(r'<em\\=[^>]+>(.*?)</em>', r'\1', text)
+        return text
     df['text'] = df['text'].apply(clean_text)
     df.to_csv(csv_path, index=False, encoding='utf-8')
 
@@ -117,6 +120,9 @@ def preprocess_txt_files():
     
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     
+    # 常见编码列表，按尝试顺序排列
+    encodings_to_try = ['utf-8', 'shift-jis', 'gbk', 'cp932', 'latin1', 'cp1252']
+    
     for filename in os.listdir(source_dir):
         if not filename.endswith(".txt"):
             continue
@@ -126,47 +132,62 @@ def preprocess_txt_files():
         
         extracted_data = []
         
-        with open(input_path, 'r', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                
-                # 匹配message类型
-                message_match = re.match(r'\[message text=(.*?)\s*name=([^\s]+)', line)
-                if message_match:
-                    text_content = message_match.group(1).strip('"')
-                    name_content = message_match.group(2).split()[0].strip('"')
+        # 尝试不同的编码格式
+        file_content = None
+        
+        for encoding in encodings_to_try:
+            try:
+                with open(input_path, 'r', encoding=encoding) as f:
+                    file_content = f.readlines()
+                print(f"成功使用 {encoding} 编码读取文件: {filename}")
+                break
+            except UnicodeDecodeError:
+                continue
+        
+        if file_content is None:
+            print(f"无法识别文件编码格式，跳过文件: {filename}")
+            continue
+            
+        for line in file_content:
+            line = line.strip()
+            
+            # 匹配message类型
+            message_match = re.match(r'\[message text=(.*?)\s*name=([^\s]+)', line)
+            if message_match:
+                text_content = message_match.group(1).strip('"')
+                name_content = message_match.group(2).split()[0].strip('"')
+                extracted_data.append({
+                    'id': 'message',
+                    'name': name_content,
+                    'text': text_content,
+                    'trans': ''
+                })
+                continue
+            
+            # 匹配choices类型
+            choices_match = re.findall(r'choice text=([^]]+?)\]', line)
+            if choices_match:
+                for choice_text in choices_match:
+                    clean_text = choice_text.strip('"')
                     extracted_data.append({
-                        'id': 'message',
-                        'name': name_content,
-                        'text': text_content,
+                        'id': 'choice',
+                        'name': '',
+                        'text': clean_text,
                         'trans': ''
                     })
                     continue
-                
-                # 匹配choices类型
-                choices_match = re.findall(r'choice text=([^]]+?)\]', line)
-                if choices_match:
-                    for choice_text in choices_match:
-                        clean_text = choice_text.strip('"')
-                        extracted_data.append({
-                            'id': 'choice',
-                            'name': '',
-                            'text': clean_text,
-                            'trans': ''
-                        })
-                        continue
-                
-                # 匹配narration类型（新增部分）
-                narration_match = re.match(r'\[narration text=([^\s"\']+)', line)
-                if narration_match:
-                    text_content = narration_match.group(1).strip('"')
-                    extracted_data.append({
-                        'id': 'narration',
-                        'name': '__narration__',
-                        'text': text_content,
-                        'trans': ''
-                    })
-                    continue
+            
+            # 匹配narration类型（新增部分）
+            narration_match = re.match(r'\[narration text=([^\s"\']+)', line)
+            if narration_match:
+                text_content = narration_match.group(1).strip('"')
+                extracted_data.append({
+                    'id': 'narration',
+                    'name': '__narration__',
+                    'text': text_content,
+                    'trans': ''
+                })
+                continue
         
         # 记录添加info行前的数据量
         original_length = len(extracted_data)
@@ -205,6 +226,7 @@ def preprocess_txt_files():
     # 预处理完成后，立即进行字典替换
     print("\n正在执行字典替换...")
     replace_names_in_csv()
+
 
 def translate_csv_files():
     """处理CSV文件翻译流程"""
@@ -481,21 +503,21 @@ def process_pure_chinese():
                 )
                 content = pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{trans}{m.group(2)}', content)
                 
-                # 增加：翻译name属性
-                if name and name_dict:
-                    translated_name = name
-                    for jp_name, cn_name in name_dict.items():
-                        if jp_name == name:
-                            translated_name = cn_name
-                            break
+            # 增加：翻译name属性
+            if name and name_dict:
+                translated_name = name
+                for jp_name, cn_name in name_dict.items():
+                    if jp_name == name:
+                        translated_name = cn_name
+                        break
                     
-                    if translated_name != name:
-                        # 替换name属性
-                        name_pattern = re.compile(
-                            r'(name=)(["\']?)%s\2' % re.escape(name),
-                            flags=re.IGNORECASE
-                        )
-                        content = name_pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{translated_name}{m.group(2)}', content)
+                if translated_name != name:
+                    # 替换name属性
+                    name_pattern = re.compile(
+                        r'(name=)(["\']?)%s\2' % re.escape(name),
+                        flags=re.IGNORECASE
+                    )
+                    content = name_pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{translated_name}{m.group(2)}', content)
         
         # 写入新文件
         with open(output_path, 'w', encoding='utf-8') as f:
@@ -583,19 +605,23 @@ def process_bilingual():
                 )
                 content = pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{trans}{m.group(2)}', content)
     
-            elif row_id == '0000000000000':
-                # 处理message类型
-                # 分割文本为多个部分（按 \n 分割）
-                parts = clean_orig.split("\\n")  # 使用清理后的原文
+            elif row_id == 'message':
+                parts = clean_orig.split("\\n")
                 trans_parts = trans.split("\\n")
-                
-                # 生成中日双语格式：每行对应一对
+    
                 bilingual_text = ""
                 for i, (part, trans_part) in enumerate(zip(parts, trans_parts)):
-                    if i < len(parts) - 1:  # 如果不是最后一行，添加 \r\n
+                    if i < len(parts) - 1:
                         bilingual_text += f"<r\\={part}>{trans_part}</r>\\r\\n"
-                    else:  # 最后一行不添加 \r\n
+                    else:
                         bilingual_text += f"<r\\={part}>{trans_part}</r>"
+    
+                pattern = re.compile(
+                    r'(text=)(["\']?)%s\2' % re.escape(orig),
+                    flags=re.IGNORECASE
+                )
+                content = pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{bilingual_text}{m.group(2)}', content)
+
 
             elif row['id'] == 'narration':  # 新增narration处理
                 parts = clean_orig.split("\\n")
@@ -618,21 +644,21 @@ def process_bilingual():
                 )
                 content = pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{bilingual_text}{m.group(2)}', content)
 
-                # 增加：翻译name属性
-                if name and name_dict:
-                    translated_name = name
-                    for jp_name, cn_name in name_dict.items():
-                        if jp_name == name:
-                            translated_name = cn_name
-                            break
+            # 增加：翻译name属性
+            if name and name_dict:
+                translated_name = name
+                for jp_name, cn_name in name_dict.items():
+                    if jp_name == name:
+                        translated_name = cn_name
+                        break
                     
-                    if translated_name != name:
-                        # 替换name属性
-                        name_pattern = re.compile(
-                            r'(name=)(["\']?)%s\2' % re.escape(name),
-                            flags=re.IGNORECASE
-                        )
-                        content = name_pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{translated_name}{m.group(2)}', content)
+                if translated_name != name:
+                    # 替换name属性
+                    name_pattern = re.compile(
+                        r'(name=)(["\']?)%s\2' % re.escape(name),
+                        flags=re.IGNORECASE
+                    )
+                    content = name_pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{translated_name}{m.group(2)}', content)
         
         # 写入新文件
         with open(output_path, 'w', encoding='utf-8') as f:
