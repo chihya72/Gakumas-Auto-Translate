@@ -111,15 +111,12 @@ def remove_r_tags_inplace(csv_path):
     df.to_csv(csv_path, index=False, encoding='utf-8')
 
 def preprocess_txt_files():
-    """预处理待翻译的txt文件"""
-    # 定义路径常量
+    """预处理待翻译的txt文件（包含message、choice和narration）"""
     source_dir = "./todo/untranslated/txt"
-    output_dir = "./todo/untranslated/csv_orig"  # 修改为csv_orig
+    output_dir = "./todo/untranslated/csv_orig"
     
-    # 创建输出目录（如果不存在）
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     
-    # 处理所有txt文件
     for filename in os.listdir(source_dir):
         if not filename.endswith(".txt"):
             continue
@@ -127,7 +124,6 @@ def preprocess_txt_files():
         input_path = os.path.join(source_dir, filename)
         output_path = os.path.join(output_dir, filename.replace(".txt", ".csv"))
         
-        # 存储提取的内容
         extracted_data = []
         
         with open(input_path, 'r', encoding='utf-8') as f:
@@ -140,7 +136,7 @@ def preprocess_txt_files():
                     text_content = message_match.group(1).strip('"')
                     name_content = message_match.group(2).split()[0].strip('"')
                     extracted_data.append({
-                        'id': '0000000000000',
+                        'id': 'message',
                         'name': name_content,
                         'text': text_content,
                         'trans': ''
@@ -153,11 +149,24 @@ def preprocess_txt_files():
                     for choice_text in choices_match:
                         clean_text = choice_text.strip('"')
                         extracted_data.append({
-                            'id': 'select',
+                            'id': 'choice',
                             'name': '',
                             'text': clean_text,
                             'trans': ''
                         })
+                        continue
+                
+                # 匹配narration类型（新增部分）
+                narration_match = re.match(r'\[narration text=([^\s"\']+)', line)
+                if narration_match:
+                    text_content = narration_match.group(1).strip('"')
+                    extracted_data.append({
+                        'id': 'narration',
+                        'name': '__narration__',
+                        'text': text_content,
+                        'trans': ''
+                    })
+                    continue
         
         # 记录添加info行前的数据量
         original_length = len(extracted_data)
@@ -388,8 +397,7 @@ def merge_translations():
 
 
 def process_pure_chinese():
-    """处理纯中文合并逻辑"""
-    # 定义路径常量
+    """纯中文替换逻辑（包含narration处理）"""
     csv_dir = "./todo/translated/csv"
     untranslated_txt_dir = "./todo/untranslated/txt"
     output_dir = "./todo/translated/txt"
@@ -462,6 +470,13 @@ def process_pure_chinese():
                 # 处理message类型
                 pattern = re.compile(
                     r'(text=)(["\']?)%s\2' % re.escape(orig),
+                    flags=re.IGNORECASE
+                )
+                content = pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{trans}{m.group(2)}', content)
+
+            elif row['id'] == 'narration':  # 新增narration处理
+                pattern = re.compile(
+                    r'(narration text=)(["\']?)%s\2' % escaped_orig,
                     flags=re.IGNORECASE
                 )
                 content = pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{trans}{m.group(2)}', content)
@@ -581,6 +596,20 @@ def process_bilingual():
                         bilingual_text += f"<r\\={part}>{trans_part}</r>\\r\\n"
                     else:  # 最后一行不添加 \r\n
                         bilingual_text += f"<r\\={part}>{trans_part}</r>"
+
+            elif row['id'] == 'narration':  # 新增narration处理
+                parts = clean_orig.split("\\n")
+                trans_parts = trans.split("\\n")
+                bilingual_text = "".join(
+                    [f"<r\\={p}>{tp}</r>\\r\\n" 
+                     for p, tp in zip(parts, trans_parts)]
+                ).rstrip('\\r\\n')
+                
+                pattern = re.compile(
+                    r'(narration text=)(["\']?)%s\2' % re.escape(orig),
+                    flags=re.IGNORECASE
+                )
+                content = pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{bilingual_text}{m.group(2)}', content)
                 
                 # 替换原始内容中的 text 部分
                 pattern = re.compile(
