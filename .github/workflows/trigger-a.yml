@@ -34,28 +34,20 @@ jobs:
         env:
           TRIGGER_TOKEN: ${{ secrets.A_PAT }}
         run: |
-          # 获取提交信息并正确处理引号
-          COMMIT_MSG=$(git log -1 --pretty=%B | jq -Rs .)
-          
-          # 获取变更文件列表并转换为 JSON 数组
-          CHANGED_FILES=${{ steps.changed_files.outputs.files }}
-          
           # 构造payload
-          PAYLOAD=$(jq -n \
-            --arg event_type "data-updated" \
-            --arg b_commit_sha "${{ github.sha }}" \
-            --arg b_commit_msg "$COMMIT_MSG" \
-            --argjson changed_files "$CHANGED_FILES" \
-            '{
-              event_type: $event_type,
-              client_payload: {
-                b_commit_sha: $b_commit_sha,
-                b_commit_msg: $b_commit_msg,
-                changed_files: $changed_files
-              }
-            }'
+          COMMIT_MSG=$(echo '${{ github.event.head_commit.message }}' | jq -Rs .)
+          PAYLOAD=$(cat <<EOF
+          {
+            "event_type": "data-updated",
+            "client_payload": {
+              "b_commit_sha": "${{ github.sha }}",
+              "b_commit_msg": ${COMMIT_MSG},
+              "changed_files": ${{ steps.changed_files.outputs.files }}
+            }
+          }
+          EOF
           )
-          
+
           echo "Payload content: $PAYLOAD"  # 调试输出
 
           # 发送请求
