@@ -36,18 +36,10 @@ jobs:
         run: |
           # 构造payload
           COMMIT_MSG=$(echo '${{ github.event.head_commit.message }}' | jq -Rs .)
-          PAYLOAD=$(cat <<EOF
-          {
-            "event_type": "data-updated",
-            "client_payload": {
-              "b_commit_sha": "${{ github.sha }}",
-              "b_commit_msg": ${COMMIT_MSG},
-              "changed_files": ${{ steps.changed_files.outputs.files }}
-            }
-          }
-          EOF
-          )
-
+          
+          # 使用echo直接构造JSON而不是heredoc
+          PAYLOAD="{\"event_type\":\"data-updated\",\"client_payload\":{\"b_commit_sha\":\"${{ github.sha }}\",\"b_commit_msg\":${COMMIT_MSG},\"changed_files\":${{ steps.changed_files.outputs.files }}}}"
+          
           echo "Payload content: $PAYLOAD"  # 调试输出
 
           # 发送请求
