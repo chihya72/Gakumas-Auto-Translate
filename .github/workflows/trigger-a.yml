@@ -38,7 +38,20 @@ jobs:
           COMMIT_MSG=$(git log -1 --pretty=%B | jq -Rs .)
           
           # 构造payload
-          PAYLOAD="{\"event_type\":\"data-updated\",\"client_payload\":{\"b_commit_sha\":\"${{ github.sha }}\",\"b_commit_msg\":${COMMIT_MSG},\"changed_files\":${{ steps.changed_files.outputs.files }}}}"
+          PAYLOAD=$(jq -n \
+            --arg event_type "data-updated" \
+            --arg b_commit_sha "${{ github.sha }}" \
+            --arg b_commit_msg "$COMMIT_MSG" \
+            --argjson changed_files "${{ steps.changed_files.outputs.files }}" \
+            '{
+              event_type: $event_type,
+              client_payload: {
+                b_commit_sha: $b_commit_sha,
+                b_commit_msg: $b_commit_msg,
+                changed_files: $changed_files
+              }
+            }'
+          )
           
           echo "Payload content: $PAYLOAD"  # 调试输出
 
