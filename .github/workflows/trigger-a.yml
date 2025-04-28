@@ -37,12 +37,15 @@ jobs:
           # 获取提交信息并正确处理引号
           COMMIT_MSG=$(git log -1 --pretty=%B | jq -Rs .)
           
+          # 获取变更文件列表并转换为 JSON 数组
+          CHANGED_FILES=${{ steps.changed_files.outputs.files }}
+          
           # 构造payload
           PAYLOAD=$(jq -n \
             --arg event_type "data-updated" \
             --arg b_commit_sha "${{ github.sha }}" \
             --arg b_commit_msg "$COMMIT_MSG" \
-            --argjson changed_files "${{ steps.changed_files.outputs.files }}" \
+            --argjson changed_files "$CHANGED_FILES" \
             '{
               event_type: $event_type,
               client_payload: {
