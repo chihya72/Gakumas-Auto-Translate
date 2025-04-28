@@ -34,10 +34,10 @@ jobs:
         env:
           TRIGGER_TOKEN: ${{ secrets.A_PAT }}
         run: |
-          # 构造payload
-          COMMIT_MSG=$(echo '${{ github.event.head_commit.message }}' | jq -Rs .)
+          # 获取提交信息并正确处理引号
+          COMMIT_MSG=$(git log -1 --pretty=%B | jq -Rs .)
           
-          # 使用echo直接构造JSON而不是heredoc
+          # 构造payload
           PAYLOAD="{\"event_type\":\"data-updated\",\"client_payload\":{\"b_commit_sha\":\"${{ github.sha }}\",\"b_commit_msg\":${COMMIT_MSG},\"changed_files\":${{ steps.changed_files.outputs.files }}}}"
           
           echo "Payload content: $PAYLOAD"  # 调试输出
