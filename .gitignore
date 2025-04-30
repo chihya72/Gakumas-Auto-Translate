@@ -17,3 +17,4 @@ node_modules/
 /.idea/
 /csv_data/.idea/
 data/.idea/
+/config.json
