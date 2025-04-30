@@ -108,7 +108,7 @@ def remove_r_tags_inplace(csv_path):
         # 匹配 <r\=...>内容</r> 只取内容
         text =  re.sub(r'<r\\=[^>]+>(.*?)</r>', r'\1', text)
         # 再处理 <em\=...>内容</em>
-        text = re.sub(r'<em\\=[^>]+>(.*?)</em>', r'\1', text)
+        text = re.sub(r'<em\\=[^>]*>(.*?)</em>', r'\1', text)
         return text
     df['text'] = df['text'].apply(clean_text)
     df.to_csv(csv_path, index=False, encoding='utf-8')
@@ -596,6 +596,7 @@ def process_bilingual():
             
             # 清理原文中的<r\=...>...</r>标签
             clean_orig = re.sub(r'<r\\=[^>]+>(.*?)</r>', r'\1', orig)
+            clean_orig = re.sub(r'<em\\=[^>]*>(.*?)</em>', r'\1', orig)
         
             if row_id == 'select':
                 # 处理choice类型
