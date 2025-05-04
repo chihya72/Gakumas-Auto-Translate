@@ -1,16 +1,28 @@
 """
 合并模块，处理翻译文件的合并功能
+此模块负责将翻译后的内容与原始游戏文件合并，支持纯中文和中日双语两种输出模式
 """
 
 import os
 import re
 import csv
-import json
 import shutil
-from .utils import clean_html_tags  # 导入通用的HTML标签清理函数
+from .utils import (clean_html_tags, load_name_dictionary, 
+                   translate_name_with_dict, read_csv_content, process_adv_unit_files)
 
 def merge_translations():
-    """合并翻译文件的主函数"""
+    """
+    合并翻译文件的主函数
+    
+    此函数是合并流程的入口点，完成以下步骤：
+    1. 检查翻译目录与未翻译目录的文件一致性
+    2. 复制翻译后的CSV文件到处理目录
+    3. 修复CSV文件，恢复原始text字段但保留翻译结果
+    4. 提示用户选择输出模式（纯中文或中日双语）
+    
+    Returns:
+        bool: 合并过程成功返回True，失败返回False
+    """
     # 步骤1: 检查目录文件一致性
     gakumas_translated_dir = "./GakumasPreTranslation/tmp/translated"
     gakumas_untranslated_dir = "./GakumasPreTranslation/tmp/untranslated"
@@ -125,23 +137,49 @@ def merge_translations():
 
 
 def process_pure_chinese():
-    """纯中文替换逻辑（包含narration处理）"""
+    """
+    纯中文替换逻辑
+    
+    处理所有翻译文件，生成仅包含中文翻译的输出文件，替换原始日文内容。
+    此函数会处理所有游戏对话、选项和旁白文本，并替换相关人名。
+    """
+    process_files(is_bilingual=False)
+
+
+def process_bilingual():
+    """
+    处理中日双语合并逻辑
+    
+    处理所有翻译文件，生成包含原日文与中文翻译的双语输出文件。
+    使用特殊的<r\=原文>翻译</r>格式来展示双语内容，使游戏可同时显示原文和译文。
+    """
+    process_files(is_bilingual=True)
+
+
+def process_files(is_bilingual=False):
+    """
+    通用文件处理函数
+    
+    根据is_bilingual参数决定输出纯中文还是中日双语格式的翻译文件。
+    此函数完成以下操作：
+    1. 加载名称翻译字典
+    2. 读取每个翻译CSV文件的内容
+    3. 在原始TXT文件中替换文本内容
+    4. 根据设定的模式生成对应格式的输出
+    5. 处理特殊的adv_unit_文件
+    
+    Args:
+        is_bilingual (bool): 是否使用中日双语模式，默认为False（纯中文）
+        
+    生成的文件将保存在./todo/translated/txt目录下
+    """
+    # 定义路径常量
     csv_dir = "./todo/translated/csv"
     untranslated_txt_dir = "./todo/untranslated/txt"
     output_dir = "./todo/translated/txt"
-    dict_file = "./name_dictionary.json"
     
     # 加载名称字典
-    name_dict = {}
-    if os.path.exists(dict_file):
-        try:
-            with open(dict_file, 'r', encoding='utf-8') as f:
-                name_dict = json.load(f)
-                print(f"已加载字典，包含 {len(name_dict)} 个替换项")
-        except Exception as e:
-            print(f"加载字典文件时出错: {e}")
-    else:
-        print(f"字典文件不存在: {dict_file}，将跳过人名翻译")
+    name_dict = load_name_dictionary()
     
     # 创建输出目录
     os.makedirs(output_dir, exist_ok=True)
@@ -162,17 +200,7 @@ def process_pure_chinese():
             continue
         
         # 读取CSV内容
-        rows = []
-        orig_texts = []
-        trans_texts = []
-        names = []  # 添加保存name的列表
-        with open(csv_path, 'r', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                rows.append(row['id'])
-                orig_texts.append(row['text'])
-                trans_texts.append(row['trans'])
-                names.append(row['name'] if 'name' in row else '')  # 保存name值
+        rows, orig_texts, trans_texts, names = read_csv_content(csv_path)
         
         # 读取原始文本内容
         with open(txt_path, 'r', encoding='utf-8') as f:
@@ -185,44 +213,86 @@ def process_pure_chinese():
             
             # 清理原文中可能存在的标签，保持一致性
             clean_orig = clean_html_tags(orig)
+            
+            if is_bilingual:
+                # 中日双语模式下的处理
+                if row_id == 'choice':
+                    pattern = re.compile(
+                        r'(choice text=)(["\']?)%s\2' % re.escape(orig),
+                        flags=re.IGNORECASE
+                    )
+                    content = pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{trans}{m.group(2)}', content)
         
-            if row_id == 'choice':
-                # 处理choice类型
-                pattern = re.compile(
-                    r'(choice text=)(["\']?)%s\2' % re.escape(clean_orig),
-                    flags=re.IGNORECASE
-                )
-                content = pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{trans}{m.group(2)}', content)
+                elif row_id == 'message':
+                    parts = clean_orig.split("\\n")
+                    trans_parts = trans.split("\\n")
+        
+                    bilingual_text = ""
+                    for i, (part, trans_part) in enumerate(zip(parts, trans_parts)):
+                        if i < len(parts) - 1:
+                            bilingual_text += f"<r\\={part}>{trans_part}</r>\\r\\n"
+                        else:
+                            bilingual_text += f"<r\\={part}>{trans_part}</r>"
+        
+                    pattern = re.compile(
+                        r'(text=)(["\']?)%s\2' % re.escape(orig),
+                        flags=re.IGNORECASE
+                    )
+                    content = pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{bilingual_text}{m.group(2)}', content)
     
-            elif row_id == 'message':
-                # 处理message类型
-                pattern = re.compile(
-                    r'(text=)(["\']?)%s\2' % re.escape(clean_orig),
-                    flags=re.IGNORECASE
-                )
-                content = pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{trans}{m.group(2)}', content)
-
-            elif row_id == 'narration':  # 处理narration
-                pattern = re.compile(
-                    r'(narration text=)(["\']?)%s\2' % re.escape(clean_orig),
-                    flags=re.IGNORECASE
-                )
-                content = pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{trans}{m.group(2)}', content)
-                
-                # 也匹配可能的text属性
-                pattern = re.compile(
-                    r'(text=)(["\']?)%s\2' % re.escape(clean_orig),
-                    flags=re.IGNORECASE
-                )
-                content = pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{trans}{m.group(2)}', content)
-                
-            # 增加：翻译name属性
+                elif row_id == 'narration':
+                    parts = clean_orig.split("\\n")
+                    trans_parts = trans.split("\\n")
+                    bilingual_text = "".join(
+                        [f"<r\\={p}>{tp}</r>\\r\\n" 
+                         for p, tp in zip(parts, trans_parts)]
+                    ).rstrip('\\r\\n')
+                    
+                    pattern = re.compile(
+                        r'(narration text=)(["\']?)%s\2' % re.escape(orig),
+                        flags=re.IGNORECASE
+                    )
+                    content = pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{bilingual_text}{m.group(2)}', content)
+                    
+                    # 替换原始内容中的 text 部分
+                    pattern = re.compile(
+                        r'(text=)(["\']?)%s\2' % re.escape(orig),
+                        flags=re.IGNORECASE
+                    )
+                    content = pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{bilingual_text}{m.group(2)}', content)
+            else:
+                # 纯中文模式下的处理
+                if row_id == 'choice':
+                    pattern = re.compile(
+                        r'(choice text=)(["\']?)%s\2' % re.escape(clean_orig),
+                        flags=re.IGNORECASE
+                    )
+                    content = pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{trans}{m.group(2)}', content)
+        
+                elif row_id == 'message':
+                    pattern = re.compile(
+                        r'(text=)(["\']?)%s\2' % re.escape(clean_orig),
+                        flags=re.IGNORECASE
+                    )
+                    content = pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{trans}{m.group(2)}', content)
+    
+                elif row_id == 'narration':
+                    pattern = re.compile(
+                        r'(narration text=)(["\']?)%s\2' % re.escape(clean_orig),
+                        flags=re.IGNORECASE
+                    )
+                    content = pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{trans}{m.group(2)}', content)
+                    
+                    # 也匹配可能的text属性
+                    pattern = re.compile(
+                        r'(text=)(["\']?)%s\2' % re.escape(clean_orig),
+                        flags=re.IGNORECASE
+                    )
+                    content = pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{trans}{m.group(2)}', content)
+            
+            # 增加：翻译name属性（两种模式都适用）
             if name and name_dict:
-                translated_name = name
-                for jp_name, cn_name in name_dict.items():
-                    if jp_name == name:
-                        translated_name = cn_name
-                        break
+                translated_name = translate_name_with_dict(name, name_dict)
                     
                 if translated_name != name:
                     # 替换name属性
@@ -235,145 +305,13 @@ def process_pure_chinese():
         # 写入新文件
         with open(output_path, 'w', encoding='utf-8') as f:
             f.write(content)
-        print(f"已生成纯中文文件: {output_path}")
-
-    print("\n合并完成！请检查以下目录:")
-    print(f"- 翻译结果: {os.path.abspath(output_dir)}")
-    print("下一步建议:")
-    print("1. 手动检查合并结果")
-    print("2. 将最终文件复制回游戏目录")
-
-
-def process_bilingual():
-    """处理中日双语合并逻辑"""
-    # 定义路径常量
-    csv_dir = "./todo/translated/csv"
-    untranslated_txt_dir = "./todo/untranslated/txt"
-    output_dir = "./todo/translated/txt"
-    dict_file = "./name_dictionary.json"
-    
-    # 加载名称字典
-    name_dict = {}
-    if os.path.exists(dict_file):
-        try:
-            with open(dict_file, 'r', encoding='utf-8') as f:
-                name_dict = json.load(f)
-                print(f"已加载字典，包含 {len(name_dict)} 个替换项")
-        except Exception as e:
-            print(f"加载字典文件时出错: {e}")
-    else:
-        print(f"字典文件不存在: {dict_file}，将跳过人名翻译")
-    
-    # 创建输出目录
-    os.makedirs(output_dir, exist_ok=True)
-    
-    # 获取CSV文件列表
-    csv_files = [f for f in os.listdir(csv_dir) if f.endswith(".csv")]
-    
-    for csv_file in csv_files:
-        # 构造文件路径
-        csv_path = os.path.join(csv_dir, csv_file)
-        txt_file = csv_file.replace(".csv", ".txt")
-        txt_path = os.path.join(untranslated_txt_dir, txt_file)
-        output_path = os.path.join(output_dir, txt_file)
-        
-        # 检查原始TXT文件是否存在
-        if not os.path.exists(txt_path):
-            print(f"警告：跳过 {csv_file}，未找到对应的原始TXT文件")
-            continue
-        
-        # 读取CSV内容
-        rows = []
-        orig_texts = []
-        trans_texts = []
-        names = []  # 添加保存name的列表
-        with open(csv_path, 'r', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                rows.append(row['id'])
-                orig_texts.append(row['text'])
-                trans_texts.append(row['trans'])
-                names.append(row['name'] if 'name' in row else '')  # 保存name值
-        
-        # 读取原始文本内容
-        with open(txt_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-        
-        # 进行文本替换
-        for i, (row_id, orig, trans, name) in enumerate(zip(rows, orig_texts, trans_texts, names)):
-            if not orig:
-                continue
             
-            # 使用通用函数清理原文中的标签
-            clean_orig = clean_html_tags(orig)
-        
-            if row_id == 'choice':
-                # 处理choice类型
-                pattern = re.compile(
-                    r'(choice text=)(["\']?)%s\2' % re.escape(orig),
-                    flags=re.IGNORECASE
-                )
-                content = pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{trans}{m.group(2)}', content)
+        mode_text = "中日双语" if is_bilingual else "纯中文"
+        print(f"已生成{mode_text}文件: {output_path}")
     
-            elif row_id == 'message':
-                parts = clean_orig.split("\\n")
-                trans_parts = trans.split("\\n")
+    # 处理adv_unit_开头的文件
+    process_adv_unit_files(output_dir)
     
-                bilingual_text = ""
-                for i, (part, trans_part) in enumerate(zip(parts, trans_parts)):
-                    if i < len(parts) - 1:
-                        bilingual_text += f"<r\\={part}>{trans_part}</r>\\r\\n"
-                    else:
-                        bilingual_text += f"<r\\={part}>{trans_part}</r>"
-    
-                pattern = re.compile(
-                    r'(text=)(["\']?)%s\2' % re.escape(orig),
-                    flags=re.IGNORECASE
-                )
-                content = pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{bilingual_text}{m.group(2)}', content)
-
-            elif row_id == 'narration':  # 处理narration
-                parts = clean_orig.split("\\n")
-                trans_parts = trans.split("\\n")
-                bilingual_text = "".join(
-                    [f"<r\\={p}>{tp}</r>\\r\\n" 
-                     for p, tp in zip(parts, trans_parts)]
-                ).rstrip('\\r\\n')
-                
-                pattern = re.compile(
-                    r'(narration text=)(["\']?)%s\2' % re.escape(orig),
-                    flags=re.IGNORECASE
-                )
-                content = pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{bilingual_text}{m.group(2)}', content)
-                
-                # 替换原始内容中的 text 部分
-                pattern = re.compile(
-                    r'(text=)(["\']?)%s\2' % re.escape(orig),
-                    flags=re.IGNORECASE
-                )
-                content = pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{bilingual_text}{m.group(2)}', content)
-
-            # 增加：翻译name属性
-            if name and name_dict:
-                translated_name = name
-                for jp_name, cn_name in name_dict.items():
-                    if jp_name == name:
-                        translated_name = cn_name
-                        break
-                    
-                if translated_name != name:
-                    # 替换name属性
-                    name_pattern = re.compile(
-                        r'(name=)(["\']?)%s\2' % re.escape(name),
-                        flags= re.IGNORECASE
-                    )
-                    content = name_pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{translated_name}{m.group(2)}', content)
-        
-        # 写入新文件
-        with open(output_path, 'w', encoding='utf-8') as f:
-            f.write(content)
-        print(f"已生成中日双语文件: {output_path}")
-
     print("\n合并完成！请检查以下目录:")
     print(f"- 翻译结果: {os.path.abspath(output_dir)}")
     print("下一步建议:")
