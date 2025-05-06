@@ -1,0 +1,6 @@
+﻿id,name,text,trans
+0000000000000,あさり先生,こんにちは、\n{user}くん。,你好，\n{user}君。
+0000000000000,あさり先生,さぁ、今回挑戦する\nオーディションを選びましょう。,来吧，这次就选择\n你想要挑战的试镜吧。
+0000000000000,あさり先生,日頃のプロデュースの成果を\n見せるときですよっ。,是时候展示日常培育的\n成果了哦。
+info,adv_pstory_002_cmmn_before-audition-select-a-normal-01.txt,,
+译者,Pro/deepseek-ai/DeepSeek-V3,,
