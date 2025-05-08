@@ -30,6 +30,8 @@ def clean_html_tags(text):
     text = re.sub(r'<r\\=[^>]+>(.*?)</r>', r'\1', text)
     # 再处理 <em\=...>内容</em>
     text = re.sub(r'<em\\=[^>]*>(.*?)</em>', r'\1', text)
+    # 处理 <em>内容</em>
+    text = re.sub(r'<em>(.*?)</em>', r'\1', text)
     return text
 
 def remove_r_tags_inplace(csv_path):
