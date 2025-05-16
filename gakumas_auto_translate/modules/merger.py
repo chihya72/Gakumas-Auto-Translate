@@ -194,8 +194,8 @@ def process_pure_chinese():
                 )
                 content = pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{trans}{m.group(2)}', content)
     
-            elif row_id == 'message':
-                # 处理message类型
+            elif row_id == '0000000000000':
+                # 处理0000000000000类型
                 pattern = re.compile(
                     r'(text=)(["\']?)%s\2' % re.escape(clean_orig),
                     flags=re.IGNORECASE
@@ -315,7 +315,7 @@ def process_bilingual():
                 )
                 content = pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{trans}{m.group(2)}', content)
     
-            elif row_id == 'message':
+            elif row_id == '0000000000000':
                 parts = clean_orig.split("\\n")
                 trans_parts = trans.split("\\n")
     
