@@ -162,27 +162,22 @@ def process_pure_chinese():
             continue
         
         # 读取CSV内容
-        rows = []
-        orig_texts = []
-        trans_texts = []
-        names = []  # 添加保存name的列表
+        replace_items = []
         with open(csv_path, 'r', encoding='utf-8') as f:
             reader = csv.DictReader(f)
             for row in reader:
-                rows.append(row['id'])
-                orig_texts.append(row['text'])
-                trans_texts.append(row['trans'])
-                names.append(row['name'] if 'name' in row else '')  # 保存name值
+                replace_items.append((row['id'], row['text'], row['trans'], row['name'] if 'name' in row else ''))
+        # 按原文长度降序排序
+        replace_items.sort(key=lambda x: len(x[1] or ""), reverse=True)
         
         # 读取原始文本内容
         with open(txt_path, 'r', encoding='utf-8') as f:
             content = f.read()
         
         # 进行文本替换
-        for i, (row_id, orig, trans, name) in enumerate(zip(rows, orig_texts, trans_texts, names)):
+        for row_id, orig, trans, name in replace_items:
             if not orig:
                 continue
-            
             # 清理原文中可能存在的标签，保持一致性
             clean_orig = clean_html_tags(orig)            
             if row_id == 'select':
@@ -207,14 +202,12 @@ def process_pure_chinese():
                     flags=re.IGNORECASE
                 )
                 content = pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{trans}{m.group(2)}', content)
-                
                 # 也匹配可能的text属性
                 pattern = re.compile(
                     r'(text=)(["\']?)%s\2' % re.escape(clean_orig),
                     flags=re.IGNORECASE
                 )
                 content = pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{trans}{m.group(2)}', content)
-                
             # 增加：翻译name属性
             if name and name_dict:
                 translated_name = name
@@ -222,7 +215,6 @@ def process_pure_chinese():
                     if jp_name == name:
                         translated_name = cn_name
                         break
-                    
                 if translated_name != name:
                     # 替换name属性
                     name_pattern = re.compile(
@@ -230,12 +222,10 @@ def process_pure_chinese():
                         flags=re.IGNORECASE
                     )
                     content = name_pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{translated_name}{m.group(2)}', content)
-        
         # 写入新文件
         with open(output_path, 'w', encoding='utf-8') as f:
             f.write(content)
         print(f"已生成纯中文文件: {output_path}")
-
     print("\n合并完成！请检查以下目录:")
     print(f"- 翻译结果: {os.path.abspath(output_dir)}")
     print("下一步建议:")
@@ -282,30 +272,24 @@ def process_bilingual():
             continue
         
         # 读取CSV内容
-        rows = []
-        orig_texts = []
-        trans_texts = []
-        names = []  # 添加保存name的列表
+        replace_items = []
         with open(csv_path, 'r', encoding='utf-8') as f:
             reader = csv.DictReader(f)
             for row in reader:
-                rows.append(row['id'])
-                orig_texts.append(row['text'])
-                trans_texts.append(row['trans'])
-                names.append(row['name'] if 'name' in row else '')  # 保存name值
+                replace_items.append((row['id'], row['text'], row['trans'], row['name'] if 'name' in row else ''))
+        # 按原文长度降序排序
+        replace_items.sort(key=lambda x: len(x[1] or ""), reverse=True)
         
         # 读取原始文本内容
         with open(txt_path, 'r', encoding='utf-8') as f:
             content = f.read()
         
         # 进行文本替换
-        for i, (row_id, orig, trans, name) in enumerate(zip(rows, orig_texts, trans_texts, names)):
+        for row_id, orig, trans, name in replace_items:
             if not orig:
                 continue
-            
             # 使用通用函数清理原文中的标签
             clean_orig = clean_html_tags(orig)
-        
             if row_id == 'select':
                 # 处理select类型
                 pattern = re.compile(
@@ -313,24 +297,20 @@ def process_bilingual():
                     flags=re.IGNORECASE
                 )
                 content = pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{trans}{m.group(2)}', content)
-    
             elif row_id == '0000000000000':
                 parts = clean_orig.split("\\n")
                 trans_parts = trans.split("\\n")
-    
                 bilingual_text = ""
                 for i, (part, trans_part) in enumerate(zip(parts, trans_parts)):
                     if i < len(parts) - 1:
                         bilingual_text += f"<r\\={part}>{trans_part}</r>\\r\\n"
                     else:
                         bilingual_text += f"<r\\={part}>{trans_part}</r>"
-    
                 pattern = re.compile(
                     r'(text=)(["\']?)%s\2' % re.escape(orig),
                     flags=re.IGNORECASE
                 )
                 content = pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{bilingual_text}{m.group(2)}', content)
-
             elif row_id == 'narration':  # 处理narration
                 parts = clean_orig.split("\\n")
                 trans_parts = trans.split("\\n")
@@ -338,20 +318,17 @@ def process_bilingual():
                     [f"<r\\={p}>{tp}</r>\\r\\n" 
                      for p, tp in zip(parts, trans_parts)]
                 ).rstrip('\\r\\n')
-                
                 pattern = re.compile(
                     r'(narration text=)(["\']?)%s\2' % re.escape(orig),
                     flags=re.IGNORECASE
                 )
                 content = pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{bilingual_text}{m.group(2)}', content)
-                
                 # 替换原始内容中的 text 部分
                 pattern = re.compile(
                     r'(text=)(["\']?)%s\2' % re.escape(orig),
                     flags=re.IGNORECASE
                 )
                 content = pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{bilingual_text}{m.group(2)}', content)
-
             # 增加：翻译name属性
             if name and name_dict:
                 translated_name = name
@@ -359,7 +336,6 @@ def process_bilingual():
                     if jp_name == name:
                         translated_name = cn_name
                         break
-                    
                 if translated_name != name:
                     # 替换name属性
                     name_pattern = re.compile(
@@ -367,12 +343,10 @@ def process_bilingual():
                         flags= re.IGNORECASE
                     )
                     content = name_pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{translated_name}{m.group(2)}', content)
-        
         # 写入新文件
         with open(output_path, 'w', encoding='utf-8') as f:
             f.write(content)
         print(f"已生成中日双语文件: {output_path}")
-
     print("\n合并完成！请检查以下目录:")
     print(f"- 翻译结果: {os.path.abspath(output_dir)}")
     print("下一步建议:")
