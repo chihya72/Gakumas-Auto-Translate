@@ -47,14 +47,13 @@ def preprocess_txt_files():
             
         for line in file_content:
             line = line.strip()
-            
-            # 匹配message类型
+              # 匹配message类型
             message_match = re.match(r'\[message text=(.*?)\s*name=([^\s]+)', line)
             if message_match:
                 text_content = message_match.group(1).strip('"')
                 name_content = message_match.group(2).split()[0].strip('"')
                 extracted_data.append({
-                    'id': 'message',
+                    'id': '0000000000000',
                     'name': name_content,
                     'text': text_content,
                     'trans': ''
@@ -67,7 +66,7 @@ def preprocess_txt_files():
                 for choice_text in choices_match:
                     clean_text = choice_text.strip('"')
                     extracted_data.append({
-                        'id': 'choice',
+                        'id': 'select',
                         'name': '',
                         'text': clean_text,
                         'trans': ''

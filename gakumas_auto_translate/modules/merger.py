@@ -184,10 +184,9 @@ def process_pure_chinese():
                 continue
             
             # 清理原文中可能存在的标签，保持一致性
-            clean_orig = clean_html_tags(orig)
-        
-            if row_id == 'choice':
-                # 处理choice类型
+            clean_orig = clean_html_tags(orig)            
+            if row_id == 'select':
+                # 处理select类型
                 pattern = re.compile(
                     r'(choice text=)(["\']?)%s\2' % re.escape(clean_orig),
                     flags=re.IGNORECASE
@@ -307,8 +306,8 @@ def process_bilingual():
             # 使用通用函数清理原文中的标签
             clean_orig = clean_html_tags(orig)
         
-            if row_id == 'choice':
-                # 处理choice类型
+            if row_id == 'select':
+                # 处理select类型
                 pattern = re.compile(
                     r'(choice text=)(["\']?)%s\2' % re.escape(orig),
                     flags=re.IGNORECASE
