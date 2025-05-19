@@ -10,7 +10,7 @@ from gakumas_auto_translate.modules.paths import get_path, ensure_paths_exist
 from gakumas_auto_translate.modules.utils import validate_input
 
 # 导入功能模块
-from gakumas_auto_translate.modules.config import load_config, configure_directories
+from gakumas_auto_translate.modules.config import load_config, configure_directories, get_dump_txt_path
 from gakumas_auto_translate.modules.checker import check_new_files
 from gakumas_auto_translate.modules.preprocessor import preprocess_txt_files
 from gakumas_auto_translate.modules.translator import translate_csv_files
@@ -34,9 +34,12 @@ def show_menu():
 
 def check_config():
     """检查配置是否有效"""
-    if not load_config():
-        print("需要先配置dump_txt目录")
-        print("请使用功能9配置程序所需目录")
+    dump_txt_path = get_dump_txt_path()
+    if not dump_txt_path:
+        logger.warning("\n⚠️ 警告：未找到有效的dump_txt路径配置")
+        logger.warning("请先使用功能9配置程序所需目录")
+        print("\n⚠️ 警告：未找到有效的dump_txt路径配置")
+        print("请先使用功能9配置程序所需目录")
         return False
     return True
 
@@ -94,8 +97,11 @@ def main():
                 if dump_txt_path:
                     logger.info(f"✅ 配置成功！dump_txt路径: {dump_txt_path}")
                     logger.info("配置已保存到 config.json")
+                    print(f"✅ 配置成功！dump_txt路径: {dump_txt_path}")
+                    print("配置已保存到 config.json")
                 else:
                     logger.error("❌ 配置失败，请重试")
+                    print("❌ 配置失败，请重试")
             
             input("\n按Enter键继续...")
             

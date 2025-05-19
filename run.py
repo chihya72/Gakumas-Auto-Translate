@@ -1,6 +1,5 @@
-#!/usr/bin/env python
 """
-Gakumas Auto Translate 入口脚本
+项目入口脚本，用于启动Gakumas Auto Translate程序
 """
 
 from gakumas_auto_translate.main import main
