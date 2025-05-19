@@ -28,6 +28,7 @@ def show_menu():
     print("3. 准备翻译")
     print("4. 合并翻译文件")
     print("5. 清理并复制")
+    print("9. 配置并检测所需目录")  # 恢复功能9
     print("0. 退出")
     print("=================================")
 
@@ -35,13 +36,14 @@ def check_config():
     """检查配置是否有效"""
     if not load_config():
         print("需要先配置dump_txt目录")
-        configure_directories()
+        print("请使用功能9配置程序所需目录")
+        return False
     return True
 
 def main():
     """主函数"""
     # 确保基本目录结构存在
-    ensure_paths_exist(["data_dir", "csv_data_dir"])
+    ensure_paths_exist(["data_dir", "csv_data_dir", "logs_dir"])
     
     # 加载配置
     load_config()
@@ -52,7 +54,7 @@ def main():
             choice = input("请输入选项数字: ").strip()
             
             # 验证输入
-            valid, value = validate_input(choice, 'number', 0, 5)
+            valid, value = validate_input(choice, 'number', 0, 9)
             if not valid:
                 logger.warning(value)  # value 包含错误信息
                 continue
@@ -85,6 +87,15 @@ def main():
             elif choice == 5:
                 # 功能5: 清理并复制
                 cleanup_and_copy()
+                
+            elif choice == 9:
+                # 功能9: 配置并检测所需目录
+                dump_txt_path = configure_directories()
+                if dump_txt_path:
+                    logger.info(f"✅ 配置成功！dump_txt路径: {dump_txt_path}")
+                    logger.info("配置已保存到 config.json")
+                else:
+                    logger.error("❌ 配置失败，请重试")
             
             input("\n按Enter键继续...")
             

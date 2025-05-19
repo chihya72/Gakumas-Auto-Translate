@@ -5,13 +5,16 @@
 import os
 import sys
 
-# 获取基础路径
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# 获取基础路径 - 修正为指向项目根目录而非模块目录
+# 当前文件路径是 gakumas_auto_translate/modules/paths.py
+# 需要上溯两级才能到达项目根目录
+MODULE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.path.dirname(os.path.dirname(MODULE_DIR))  # 上溯两级到项目根目录
 
-# 配置文件路径
+# 配置文件路径 - 位于项目根目录
 CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
 
-# 字典文件路径
+# 字典文件路径 - 位于项目根目录
 DICT_FILE = os.path.join(BASE_DIR, "name_dictionary.json")
 
 # 项目目录结构
@@ -32,6 +35,7 @@ def get_project_paths():
         "gakumas_dir": os.path.join(BASE_DIR, "GakumasPreTranslation"),
         "gakumas_tmp_untranslated": os.path.join(BASE_DIR, "GakumasPreTranslation", "tmp", "untranslated"),
         "gakumas_tmp_translated": os.path.join(BASE_DIR, "GakumasPreTranslation", "tmp", "translated"),
+        "logs_dir": os.path.join(BASE_DIR, "logs"),
     }
     return paths
 

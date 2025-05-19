@@ -19,3 +19,4 @@ node_modules/
 data/.idea/
 /config.json
 /AutoTranslate.py
+/logs

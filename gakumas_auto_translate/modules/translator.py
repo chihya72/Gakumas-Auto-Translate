@@ -5,8 +5,8 @@
 
 import os
 import shutil
-from logger import get_logger
-from paths import get_path, ensure_paths_exist
+from gakumas_auto_translate.modules.logger import get_logger
+from gakumas_auto_translate.modules.paths import get_path, ensure_paths_exist
 
 # 获取日志记录器
 logger = get_logger("translator")

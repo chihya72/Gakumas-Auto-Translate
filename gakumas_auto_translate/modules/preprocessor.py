@@ -9,9 +9,9 @@ import csv
 import json
 import shutil
 from pathlib import Path
-from logger import get_logger
-from paths import get_path, ensure_paths_exist
-from utils import remove_r_tags_inplace, read_file_with_encoding
+from gakumas_auto_translate.modules.logger import get_logger
+from gakumas_auto_translate.modules.paths import get_path, ensure_paths_exist
+from gakumas_auto_translate.modules.utils import remove_r_tags_inplace, read_file_with_encoding
 
 # 获取日志记录器
 logger = get_logger("preprocessor")

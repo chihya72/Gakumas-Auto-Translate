@@ -5,9 +5,9 @@
 
 import os
 import json
-from logger import get_logger
-from paths import get_path, get_project_paths, ensure_paths_exist
-from utils import create_sample_dictionary
+from gakumas_auto_translate.modules.logger import get_logger
+from gakumas_auto_translate.modules.paths import get_path, get_project_paths, ensure_paths_exist
+from gakumas_auto_translate.modules.utils import create_sample_dictionary
 
 # 获取日志记录器
 logger = get_logger("config")

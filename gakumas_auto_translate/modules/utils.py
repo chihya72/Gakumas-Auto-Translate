@@ -7,8 +7,8 @@ import os
 import re
 import json
 import pandas as pd
-from logger import get_logger
-from paths import get_path, normalize_path
+from gakumas_auto_translate.modules.logger import get_logger
+from gakumas_auto_translate.modules.paths import get_path, normalize_path
 
 # 获取日志记录器
 logger = get_logger("utils")
