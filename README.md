@@ -1,158 +1,59 @@
-# Gakumas Auto Translate
+# Gakumas Auto Translate 项目改进说明
 
-一个用于自动翻译《学园偶像大师》（Gakuen Idolmaster）游戏文本的工具包。本工具提供完整的文本翻译工作流程，从游戏解包文件中提取文本，到翻译处理，再到将翻译内容合并回游戏文件格式。
+## 改进概述
 
-## 功能特点
+根据之前的缺陷分析，我对 Gakumas Auto Translate 项目的所有 Python 文件进行了全面重构，主要改进包括：
 
-- ✅ **检测新增文本** - 自动检测需要翻译的新文本文件
-- 🔄 **文本预处理** - 将游戏文本转换为CSV格式，并进行人名替换
-- 🌐 **翻译集成** - 与外部翻译API工具无缝集成
-- 📚 **双语支持** - 支持纯中文或中日双语格式
-- 🔧 **自动化管理** - 自动化文件管理和目录维护
-- 🧹 **清理整理** - 翻译完成后的文件清理和归档
+1. **统一路径管理**：新增 `paths.py` 模块，集中管理所有路径，避免硬编码
+2. **引入日志系统**：新增 `logger.py` 模块，提供统一的日志记录功能，替代原有的 print 语句
+3. **增强异常处理**：所有模块都增加了详细的异常处理，提高代码健壮性
+4. **改进文件操作安全性**：使用更安全的文件操作方式，避免数据丢失
+5. **增强输入验证**：对用户输入和文件内容进行更严格的验证
+6. **优化代码结构**：重构了代码结构，提高可维护性和可读性
+7. **修复中日双语合并逻辑**：根据您的要求，使用改进版的合并逻辑
 
-## 项目结构
+## 文件说明
 
-项目采用模块化设计，提高了代码可维护性和可扩展性：
+### 新增文件
 
-```
-gakumas_auto_translate/       # 主程序包
-├── __init__.py               # 包初始化文件
-├── main.py                   # 主程序入口
-└── modules/                  # 功能模块目录
-    ├── __init__.py           # 模块包初始化文件
-    ├── checker.py            # 检查新文件模块
-    ├── cleaner.py            # 清理和复制模块
-    ├── config.py             # 配置管理模块
-    ├── merger.py             # 合并翻译文件模块
-    ├── preprocessor.py       # 文本预处理模块
-    ├── translator.py         # 翻译处理模块
-    └── utils.py              # 公共工具函数模块
+1. **paths.py**：统一管理项目中使用的所有路径，避免硬编码
+2. **logger.py**：提供统一的日志记录功能，支持控制台和文件输出
 
-run.py                        # 快速启动脚本
-```
+### 修改文件
 
-## 文件结构
+1. **utils.py**：增加异常处理、日志记录和路径灵活性
+2. **config.py**：重构为类结构，增强配置管理能力
+3. **checker.py**：增加异常处理和日志记录
+4. **cleaner.py**：增加异常处理和文件操作安全性
+5. **preprocessor.py**：增强编码处理和异常处理
+6. **translator.py**：增加异常处理和路径灵活性
+7. **merger.py**：基于您提供的 merger_updated_solution.py，并整合到新架构
+8. **main.py**：增加输入验证和全局异常处理
 
-```
-./
-├── gakumas_auto_translate/      # 主程序包
-├── data/                        # 存储已翻译文件的目录
-├── dump_txt/                    # 游戏解包文件目录
-├── todo/                        # 工作流临时文件
-│   ├── untranslated/       
-│   │   ├── txt/                 # 未翻译的原始文本
-│   │   └── csv/                 # 待翻译的CSV文件
-│   └── translated/         
-│       ├── csv/                 # 已翻译的CSV文件
-│       └── txt/                 # 合并翻译后的游戏文本
-└── GakumasPreTranslation/       # 翻译工具目录
-```
+## 使用说明
 
-## 使用流程
+1. 将所有文件复制到对应目录，保持原有目录结构：
+   - 模块文件放入 `gakumas_auto_translate/modules/` 目录
+   - main.py 放入 `gakumas_auto_translate/` 目录
+   - 确保 `__init__.py` 文件存在于各级目录
 
-### 初始设置
-
-1. **配置并检测所需目录**（选项9）
-   - 设置数据存储目录
-   - 配置dump_txt文件路径（游戏解包文件的位置）
-
-### 翻译工作流程
-
-1. **检查新增未翻译文本**（选项1）
+2. 首次运行前，创建 `logs` 目录用于存放日志文件：
    ```
-   # 比较dump_txt和data目录，识别需要翻译的新文件
-   # 自动创建todo目录结构并复制新文件
+   mkdir -p logs
    ```
 
-2. **预处理文本为CSV**（选项2）
-   ```
-   # 解析原始游戏文本文件
-   # 提取对话和选项文本
-   # 生成含有原文和空翻译字段的CSV文件
-   # 应用人名字典进行替换
-   ```
+## Windows 兼容性说明
 
-3. **翻译CSV文件**（选项3）
-   ```
-   # 准备GakumasPreTranslation环境
-   # 复制待翻译文件到翻译工具目录
-   # 使用翻译API处理文本
-   ```
+所有代码都已针对 Windows 环境进行了优化：
 
-4. **合并翻译文件**（选项4）
-   ```
-   # 检查翻译完成情况
-   # 支持纯中文或中日双语格式
-   # 生成最终翻译后的txt文件
-   ```
-
-5. **完成并清理临时文件**（选项5）
-   ```
-   # 将翻译后的文件复制到data目录
-   # 清理临时文件和目录
-   ```
-
-## 人名字典
-
-程序使用`name_dictionary.json`文件进行人名和常见词汇的替换。格式为：
-
-```json
-{
-  "日文名称1": "中文名称1",
-  "日文名称2": "中文名称2"
-}
-```
-
-## 依赖项
-
-本工具依赖于[GakumasPreTranslation](https://github.com/imas-tools/GakumasPreTranslation)项目（即SCPreTranslation）进行实际翻译操作。请确保已正确安装并配置该项目。
-
-### 前置要求
-
-1. Python 3.6+
-2. 已解包的游戏文本文件（使用[Gakuen-idolmaster-ab-decrypt](https://github.com/nijinekoyo/Gakuen-idolmaster-ab-decrypt.git)工具）
-3. Git（用于克隆翻译工具仓库）
-4. [SCPreTranslation](https://github.com/ShinyGroup/SCPreTranslation.git)工具（在脚本中被称为GakumasPreTranslation）
-5. Node.js和Yarn（用于运行翻译工具）
-
-### 安装与设置
-
-1. 克隆本仓库到本地
-
-   ```bash
-   git clone [您的仓库URL]
-   cd [仓库文件夹]
-   ```
-
-2. 克隆并准备翻译工具
-
-   ```bash
-   git clone https://github.com/ShinyGroup/SCPreTranslation.git GakumasPreTranslation
-   ```
-
-3. 翻译工具配置
-
-   - 进入GakumasPreTranslation目录
-   - 复制.env.sample为.env文件
-   - 编辑.env文件，配置您的翻译API密钥（如DeepL、Google等）
-   - 运行`yarn`安装依赖
-   - 按照工具文档配置翻译参数
+1. 使用 `os.path` 处理路径，确保跨平台兼容性
+2. 文件操作使用 UTF-8 编码，支持中文和日文
+3. 异常处理考虑了 Windows 特有的文件锁定问题
 
 ## 注意事项
 
-- 确保已正确设置翻译API密钥（如DeepL）
-- 翻译前请检查人名字典是否需要更新
-- 建议定期备份data目录的内容
-- 游戏文本需要先使用Gakuen-idolmaster-ab-decrypt工具进行解包
-- 中日双语模式会用特殊格式标记原文和译文，可能需要游戏支持此格式
+1. 首次运行时，程序会自动创建必要的目录结构
+2. 日志文件保存在 `logs` 目录下，按日期命名
+3. 如遇到问题，请查看日志文件获取详细错误信息
 
-## 常见问题
-
-- **找不到dump_txt目录**：请确保已正确解包游戏文件，并在选项9中配置正确的路径
-- **翻译工具报错**：请检查.env配置是否正确，API密钥是否有效
-- **合并后的文本格式错误**：根据游戏支持的格式选择合适的合并模式（纯中文或中日双语）
-
-## 贡献与反馈
-
-如发现问题或有改进建议，请提交Issue或Pull Request到本项目的仓库。
+希望这些改进能解决您项目中的缺陷问题，提高代码的稳定性和可维护性。
