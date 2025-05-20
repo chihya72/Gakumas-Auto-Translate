@@ -1,4 +1,4 @@
-﻿[backgroundgroup backgrounds=[background id=producer_room src=env_3d_adv_classroom-00-00-noon] backgrounds=[background id=rouka src=env_3d_adv_corridor-00-00-noon]]
+[backgroundgroup backgrounds=[background id=producer_room src=env_3d_adv_classroom-00-00-noon] backgrounds=[background id=rouka src=env_3d_adv_corridor-00-00-noon]]
 [actorgroup actors=[actor id=fktn body=mdl_chr_fktn-casl-0000_body face=mdl_chr_fktn-base-0000_face hair=mdl_chr_fktn-base-0000_hair]]
 [backgroundlayoutgroup layouts=[backgroundlayout id=rouka] clip=\{"_startTime":0.0,"_duration":0.0,"_easeInDuration":0.0,"_easeOutDuration":0.0,"_blendInDuration":-1.0,"_blendOutDuration":-1.0,"_mixInEaseType":1,"_mixOutEaseType":1,"_timeScale":1.0\}]
 [fade from=1 to=0 clip=\{"_startTime":0.0,"_duration":0.8,"_easeInDuration":0.0,"_easeOutDuration":0.0,"_blendInDuration":-1.0,"_blendOutDuration":-1.0,"_mixInEaseType":1,"_mixOutEaseType":1,"_timeScale":1.0\}]

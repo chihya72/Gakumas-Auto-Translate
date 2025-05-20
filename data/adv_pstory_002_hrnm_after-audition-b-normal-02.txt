@@ -1,4 +1,4 @@
-﻿[backgroundgroup backgrounds=[background id=waitingroom src=env_2d_adv_other-waitingroom-nia-00-noon]]
+[backgroundgroup backgrounds=[background id=waitingroom src=env_2d_adv_other-waitingroom-nia-00-noon]]
 [actorgroup actors=[actor id=hrnm body=mdl_chr_hrnm-cstm-0000_body face=mdl_chr_hrnm-base-0000_face hair=mdl_chr_hrnm-cstm-0000_hair]]
 [propgroup props=[prop id=black prop=mdl_env_cmn-parts_city-black-00_black0::mdl_env_cmn-parts_city-black-00_black0 Variant]]
 [overwritecharactersettinggroup characterColors=[overwritecharactersetting name=抚子 setting=gkgt]]

@@ -1,4 +1,4 @@
-﻿[backgroundgroup backgrounds=[background id=school-councilroom-noon-vert src=env_3d_adv_classroom-00-00-noon]]
+[backgroundgroup backgrounds=[background id=school-councilroom-noon-vert src=env_3d_adv_classroom-00-00-noon]]
 [actorgroup actors=[actor id=trn1 body=mdl_chr_trda-trng-0000_body face=mdl_chr_trda-base-0000_face hair=mdl_chr_trda-base-0000_hair] actors=[actor id=hski body=mdl_chr_hski-schl-0000_body face=mdl_chr_hski-base-0000_face hair=mdl_chr_hski-base-0000_hair others=mdl_prp_smartphone-hski-00_smartphone]]
 [propgroup props=[prop id=lunch prop=mdl_prp_meal-hski-02_meal]]
 [fade from=1 to=0 clip=\{"_startTime":0.0,"_duration":0.8,"_easeInDuration":0.0,"_easeOutDuration":0.0,"_blendInDuration":-1.0,"_blendOutDuration":-1.0,"_mixInEaseType":1,"_mixOutEaseType":1,"_timeScale":1.0\}]

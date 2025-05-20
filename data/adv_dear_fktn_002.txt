@@ -1,4 +1,4 @@
-﻿[backgroundgroup backgrounds=[background id=bg src=env_3d_adv_danceroom-00-00-noon] backgrounds=[background id=proom src=env_3d_adv_classroom-00-00-noon]]
+[backgroundgroup backgrounds=[background id=bg src=env_3d_adv_danceroom-00-00-noon] backgrounds=[background id=proom src=env_3d_adv_classroom-00-00-noon]]
 [actorgroup actors=[actor id=fktn body=mdl_chr_fktn-trng-0000_body face=mdl_chr_fktn-base-0000_face hair=mdl_chr_fktn-base-0000_hair]]
 [fade from=1 to=0 clip=\{"_startTime":0.0,"_duration":0.8,"_easeInDuration":0.0,"_easeOutDuration":0.0,"_blendInDuration":-1.0,"_blendOutDuration":-1.0,"_mixInEaseType":1,"_mixOutEaseType":1,"_timeScale":1.0\}]
 [actorsweat id=fktn]

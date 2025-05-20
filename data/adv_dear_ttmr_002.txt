@@ -1,4 +1,4 @@
-﻿[backgroundgroup backgrounds=[background id=bg src=env_3d_adv_danceroom-00-00-noon] backgrounds=[background id=bg2 src=env_3d_adv_classroom-00-00-noon] backgrounds=[background id=p src=env_3d_adv_classroom-00-00-noon]]
+[backgroundgroup backgrounds=[background id=bg src=env_3d_adv_danceroom-00-00-noon] backgrounds=[background id=bg2 src=env_3d_adv_classroom-00-00-noon] backgrounds=[background id=p src=env_3d_adv_classroom-00-00-noon]]
 [actorgroup actors=[actor id=ttmr body=mdl_chr_ttmr-trng-0000_body face=mdl_chr_ttmr-base-0000_face hair=mdl_chr_ttmr-base-0000_hair]]
 [propgroup props=[prop id=kokoro prop=mdl_env_cmn-parts_city-black-00_black0::mdl_env_cmn-parts_city-black-00_black0 Variant]]
 [actorsweat id=ttmr]

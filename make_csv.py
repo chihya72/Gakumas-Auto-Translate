@@ -253,7 +253,7 @@ def process_game_scripts_main(bilingual_root_dir, original_root_dir, output_dire
             all_rows_for_this_csv.append(["译者", "Pro/deepseek-ai/DeepSeek-V3", "", ""])
 
             try:
-                with open(output_csv_file_for_this_file, 'w', newline='', encoding='utf-8-sig') as f_out:
+                with open(output_csv_file_for_this_file, 'w', newline='', encoding='utf-8') as f_out:
                     writer = csv.writer(f_out)
                     writer.writerows(all_rows_for_this_csv)
                 if current_file_dialogue_rows: 
@@ -304,7 +304,7 @@ if __name__ == "__main__":
     # --- 请确保将以下路径替换为您的实际路径 ---
     bilingual_files_directory = r"D:\GIT\Gakumas-Auto-Translate\data" 
     original_japanese_files_directory = r"D:\GIT\Gakuen-idolmaster-ab-decrypt\output\resource\txt" 
-    output_csv_main_directory = r"D:\GIT\Gakumas-Auto-Translate\csv_data"
+    output_csv_main_directory = r"D:\GIT\Gakumas-Auto-Translate\csv_data_new"
     # --- 路径替换结束 ---
 
     if not os.path.isdir(bilingual_files_directory):

@@ -1,4 +1,4 @@
-﻿[backgroundgroup backgrounds=[background id=toschool src=env_3d_adv_toschool-00-00-noon] backgrounds=[background id=rooftop src=env_3d_adv_rooftop-00-00-noon] backgrounds=[background id=townstreet src=env_2d_adv_outschool-townstreet-00-evening]]
+[backgroundgroup backgrounds=[background id=toschool src=env_3d_adv_toschool-00-00-noon] backgrounds=[background id=rooftop src=env_3d_adv_rooftop-00-00-noon] backgrounds=[background id=townstreet src=env_2d_adv_outschool-townstreet-00-evening]]
 [actorgroup actors=[actor id=ssmk body=mdl_chr_ssmk-schl-0000_body face=mdl_chr_ssmk-base-0000_face hair=mdl_chr_ssmk-base-0000_hair] actors=[actor id=kllj body=mdl_chr_kllj-schl-0000_body face=mdl_chr_kllj-base-0000_face hair=mdl_chr_kllj-base-0000_hair]]
 [propgroup props=[prop id=black prop=mdl_env_cmn-parts_city-black-00_black0::mdl_env_cmn-parts_city-black-00_black0 Variant]]
 [overwritecharactersettinggroup characterColors=[overwritecharactersetting name=四音 setting=gkgt]]

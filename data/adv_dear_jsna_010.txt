@@ -1,4 +1,4 @@
-﻿[backgroundgroup backgrounds=[background id=councilroom src=env_3d_adv_councilroom-00-00-noon] backgrounds=[background id=stage src=env_3d_adv_jsna001-00-noon]]
+[backgroundgroup backgrounds=[background id=councilroom src=env_3d_adv_councilroom-00-00-noon] backgrounds=[background id=stage src=env_3d_adv_jsna001-00-noon]]
 [propgroup props=[prop id=stage_monitor prop=mdl_env_grp_adv_jsna001-00]]
 [lightgroup lights=[light id=sena_spot definition=\{"type":1,"lightData":\{"type":0,"customLightingType":0,"indirectLighting":true,"renderingLayer":1,"shadows":0,"shadowRenderingLayers":0\}\}]]
 [actorgroup actors=[actor id=jsna body=mdl_chr_jsna-schl-0000_body face=mdl_chr_jsna-base-0000_face hair=mdl_chr_jsna-base-0000_hair]]

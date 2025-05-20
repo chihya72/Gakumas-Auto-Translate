@@ -4,7 +4,6 @@
 
 import os
 import shutil
-from .utils import process_unit_files_in_folder
 
 def cleanup_and_copy():
     """清理临时文件并复制最终文件"""
@@ -17,7 +16,6 @@ def cleanup_and_copy():
     if os.path.exists(source_dir):
         # 处理adv_unit_开头的文件
         print("处理adv_unit_开头的文件...")
-        process_unit_files_in_folder(source_dir)
         
         # 创建目标目录（如果不存在）
         os.makedirs(data_dir, exist_ok=True)

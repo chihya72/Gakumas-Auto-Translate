@@ -7,7 +7,7 @@ import re
 import csv
 import json
 import shutil
-from .utils import clean_html_tags  # 导入通用的HTML标签清理函数
+from .utils import clean_html_tags, process_unit_files_in_folder  # 添加导入
 
 def merge_translations():
     """合并翻译文件的主函数"""
@@ -107,130 +107,10 @@ def merge_translations():
         else:
             print(f"文件 {filename} 无需更新text字段")
     
-    # 步骤4: 用户选择合并模式
-    while True:
-        print("\n请选择合并模式:")
-        print("1. 纯中文（仅保留翻译内容）")
-        print("2. 中日双语（保留原文和翻译）")
-        choice = input("请输入选项(1/2): ").strip()
-        
-        if choice == '1':
-            process_pure_chinese()
-            return True
-        elif choice == '2':
-            process_bilingual()
-            return True
-        else:
-            print("无效输入，请重新选择")
-
-
-def process_pure_chinese():
-    """纯中文替换逻辑（包含narration处理）"""
-    csv_dir = "./todo/translated/csv"
-    untranslated_txt_dir = "./todo/untranslated/txt"
-    output_dir = "./todo/translated/txt"
-    dict_file = "./name_dictionary.json"
-    
-    # 加载名称字典
-    name_dict = {}
-    if os.path.exists(dict_file):
-        try:
-            with open(dict_file, 'r', encoding='utf-8') as f:
-                name_dict = json.load(f)
-                print(f"已加载字典，包含 {len(name_dict)} 个替换项")
-        except Exception as e:
-            print(f"加载字典文件时出错: {e}")
-    else:
-        print(f"字典文件不存在: {dict_file}，将跳过人名翻译")
-    
-    # 创建输出目录
-    os.makedirs(output_dir, exist_ok=True)
-    
-    # 获取CSV文件列表
-    csv_files = [f for f in os.listdir(csv_dir) if f.endswith(".csv")]
-    
-    for csv_file in csv_files:
-        # 构造文件路径
-        csv_path = os.path.join(csv_dir, csv_file)
-        txt_file = csv_file.replace(".csv", ".txt")
-        txt_path = os.path.join(untranslated_txt_dir, txt_file)
-        output_path = os.path.join(output_dir, txt_file)
-        
-        # 检查原始TXT文件是否存在
-        if not os.path.exists(txt_path):
-            print(f"警告：跳过 {csv_file}，未找到对应的原始TXT文件")
-            continue
-        
-        # 读取CSV内容
-        replace_items = []
-        with open(csv_path, 'r', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                replace_items.append((row['id'], row['text'], row['trans'], row['name'] if 'name' in row else ''))
-        # 按原文长度降序排序
-        replace_items.sort(key=lambda x: len(x[1] or ""), reverse=True)
-        
-        # 读取原始文本内容
-        with open(txt_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-        
-        # 进行文本替换
-        for row_id, orig, trans, name in replace_items:
-            if not orig:
-                continue
-            # 清理原文中可能存在的标签，保持一致性
-            clean_orig = clean_html_tags(orig)            
-            if row_id == 'select':
-                # 处理select类型
-                pattern = re.compile(
-                    r'(choice text=)(["\']?)%s\2' % re.escape(clean_orig),
-                    flags=re.IGNORECASE
-                )
-                content = pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{trans}{m.group(2)}', content)
-    
-            elif row_id == '0000000000000':
-                # 处理0000000000000类型
-                pattern = re.compile(
-                    r'(text=)(["\']?)%s\2' % re.escape(clean_orig),
-                    flags=re.IGNORECASE
-                )
-                content = pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{trans}{m.group(2)}', content)
-
-            elif row_id == 'narration':  # 处理narration
-                pattern = re.compile(
-                    r'(narration text=)(["\']?)%s\2' % re.escape(clean_orig),
-                    flags=re.IGNORECASE
-                )
-                content = pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{trans}{m.group(2)}', content)
-                # 也匹配可能的text属性
-                pattern = re.compile(
-                    r'(text=)(["\']?)%s\2' % re.escape(clean_orig),
-                    flags=re.IGNORECASE
-                )
-                content = pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{trans}{m.group(2)}', content)
-            # 增加：翻译name属性
-            if name and name_dict:
-                translated_name = name
-                for jp_name, cn_name in name_dict.items():
-                    if jp_name == name:
-                        translated_name = cn_name
-                        break
-                if translated_name != name:
-                    # 替换name属性
-                    name_pattern = re.compile(
-                        r'(name=)(["\']?)%s\2' % re.escape(name),
-                        flags=re.IGNORECASE
-                    )
-                    content = name_pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{translated_name}{m.group(2)}', content)
-        # 写入新文件
-        with open(output_path, 'w', encoding='utf-8') as f:
-            f.write(content)
-        print(f"已生成纯中文文件: {output_path}")
-    print("\n合并完成！请检查以下目录:")
-    print(f"- 翻译结果: {os.path.abspath(output_dir)}")
-    print("下一步建议:")
-    print("1. 手动检查合并结果")
-    print("2. 将最终文件复制回游戏目录")
+    # 步骤4: 直接执行中日双语合并模式
+    print("\n正在执行中日双语合并模式...")
+    process_bilingual()
+    return True
 
 
 def process_bilingual():
@@ -240,6 +120,11 @@ def process_bilingual():
     untranslated_txt_dir = "./todo/untranslated/txt"
     output_dir = "./todo/translated/txt"
     dict_file = "./name_dictionary.json"
+    error_report_file = "./error_report.csv" # 定义错误报告文件路径
+    
+    # 初始化错误记录
+    has_errors = False
+    error_rows = [['文件', 'ID', '错误类型', '原文', '翻译', '详细信息']] # 错误报告头部
     
     # 加载名称字典
     name_dict = {}
@@ -269,86 +154,222 @@ def process_bilingual():
         # 检查原始TXT文件是否存在
         if not os.path.exists(txt_path):
             print(f"警告：跳过 {csv_file}，未找到对应的原始TXT文件")
+            # 可以选择记录此警告为错误，但当前按跳过处理
             continue
         
         # 读取CSV内容
         replace_items = []
-        with open(csv_path, 'r', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                replace_items.append((row['id'], row['text'], row['trans'], row['name'] if 'name' in row else ''))
+        try:
+            with open(csv_path, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                replace_items = list(reader)
+        except Exception as e:
+            print(f"错误: 读取文件 {csv_file} 时出错: {e}")
+            error_rows.append([csv_file, "N/A", "文件读取错误", "", "", str(e)])
+            has_errors = True
+            continue # 跳过此文件
+            
         # 按原文长度降序排序
-        replace_items.sort(key=lambda x: len(x[1] or ""), reverse=True)
+        replace_items.sort(key=lambda x: len(x.get('text', '') or ""), reverse=True)
         
         # 读取原始文本内容
-        with open(txt_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-        
+        try:
+            with open(txt_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+        except Exception as e:
+            print(f"错误: 读取文件 {txt_file} 时出错: {e}")
+            error_rows.append([csv_file, "N/A", "原始文件读取错误", "", "", str(e)])
+            has_errors = True
+            continue # 跳过此文件
+            
         # 进行文本替换
-        for row_id, orig, trans, name in replace_items:
-            if not orig:
-                continue
+        changes_count = 0 # 记录当前文件替换次数
+        file_has_errors = False # 标记当前文件是否有错误
+        
+        for row in replace_items:
+            row_id = row.get('id', '')
+            orig = row.get('text', '')
+            trans = row.get('trans', '')
+            name = row.get('name', '')
+            
+            if not orig or not trans:
+                # 根据用户需求，对不同ID的空条目进行区分处理
+                if row_id == 'info' or row_id == '译者':
+                    # ID为info，原文或翻译为空是正常情况，只跳过，不记录错误，也不打印警告
+                    # print(f"警告: 文件 {csv_file} 中ID为 {row_id} 的条目原文或翻译为空，跳过处理") # 删除此行
+                    # 不记录为错误
+                    pass # 显式地什么都不做
+                else:
+                    # 其他ID，原文或翻译为空视为错误
+                    print(f"错误: 文件 {csv_file} 中ID为 {row_id} 的条目原文或翻译为空")
+                    error_rows.append([csv_file, row_id, "条目内容不完整", orig, trans, "原文或翻译为空"])
+                    has_errors = True
+                    file_has_errors = True # 标记文件有错误
+
+                continue # 跳过处理当前条目
+            
             # 使用通用函数清理原文中的标签
             clean_orig = clean_html_tags(orig)
+            
+            # 临时存储当前替换后的内容，用于对比是否发生变化
+            current_content = content
+            
             if row_id == 'select':
-                # 处理select类型
-                pattern = re.compile(
-                    r'(choice text=)(["\']?)%s\2' % re.escape(orig),
-                    flags=re.IGNORECASE
-                )
-                content = pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{trans}{m.group(2)}', content)
+                # 处理select类型 - 仅替换文本内容
+                try:
+                    # 修正正则表达式，不再匹配引号
+                    pattern = re.compile(
+                        r'(choice text=)%s' % re.escape(orig),
+                    )
+                    # 修正替换逻辑，不再处理引号
+                    new_content = pattern.sub(lambda m: f'{m.group(1)}{trans}', content)
+                    if new_content != content:
+                        content = new_content
+                        changes_count += 1
+                except Exception as e:
+                    print(f"处理文件 {csv_file} 中ID为 {row_id} 的select条目时出错: {e}")
+                    error_rows.append([csv_file, row_id, "处理select错误", orig, trans, str(e)])
+                    has_errors = True
+                    file_has_errors = True
+
             elif row_id == '0000000000000':
-                parts = clean_orig.split("\\n")
-                trans_parts = trans.split("\\n")
-                bilingual_text = ""
-                for i, (part, trans_part) in enumerate(zip(parts, trans_parts)):
-                    if i < len(parts) - 1:
-                        bilingual_text += f"<r\\={part}>{trans_part}</r>\\r\\n"
-                    else:
-                        bilingual_text += f"<r\\={part}>{trans_part}</r>"
-                pattern = re.compile(
-                    r'(text=)(["\']?)%s\2' % re.escape(orig),
-                    flags=re.IGNORECASE
-                )
-                content = pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{bilingual_text}{m.group(2)}', content)
+                # 处理0000000000000类型 - 需要中日双语
+                try:
+                    # 移除原文末尾可能多余的 \n
+                    processed_orig = clean_orig.rstrip('\\n')
+                    # 分割处理后的原文和翻译为行
+                    parts = processed_orig.split("\\n")
+                    trans_parts = trans.split("\\n")
+                    
+                    # 检查原文和翻译的行数是否一致 (使用处理后的原文行数)
+                    if len(parts) != len(trans_parts):
+                        print(f"警告: 文件 {csv_file} 中ID为 {row_id} 的条目，原文和翻译的行数不一致 (原文: {len(parts)}行, 翻译: {len(trans_parts)}行)")
+                        error_rows.append([
+                            csv_file, row_id, "行数不匹配", 
+                            processed_orig, trans, 
+                            f"原文行数: {len(parts)}, 翻译行数: {len(trans_parts)}"
+                        ])
+                        has_errors = True
+                        file_has_errors = True
+                        continue  # 跳过处理此条目
+                        
+                    bilingual_text = "".join(
+                        [f"<r\\={p}>{tp}</r>\\r\\n" 
+                         for p, tp in zip(parts, trans_parts)]
+                    ).rstrip('\\r\\n')
+                    # 匹配 message text= 属性
+                    pattern = re.compile(
+                        r'(message text=)%s' % re.escape(orig),
+                    )
+                    new_content = pattern.sub(lambda m: f'{m.group(1)}{bilingual_text}', content)
+                    
+                    # 检查是否发生替换并更新内容和计数
+                    if new_content != content:
+                        content = new_content
+                        changes_count += 1
+                except Exception as e:
+                    print(f"处理文件 {csv_file} 中ID为 {row_id} 的条目时出错: {e}")
+                    error_rows.append([csv_file, row_id, "处理错误", processed_orig, trans, str(e)])
+                    has_errors = True
+                    file_has_errors = True
+                    continue # 跳过处理此条目
+
             elif row_id == 'narration':  # 处理narration
-                parts = clean_orig.split("\\n")
-                trans_parts = trans.split("\\n")
-                bilingual_text = "".join(
-                    [f"<r\\={p}>{tp}</r>\\r\\n" 
-                     for p, tp in zip(parts, trans_parts)]
-                ).rstrip('\\r\\n')
-                pattern = re.compile(
-                    r'(narration text=)(["\']?)%s\2' % re.escape(orig),
-                    flags=re.IGNORECASE
-                )
-                content = pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{bilingual_text}{m.group(2)}', content)
-                # 替换原始内容中的 text 部分
-                pattern = re.compile(
-                    r'(text=)(["\']?)%s\2' % re.escape(orig),
-                    flags=re.IGNORECASE
-                )
-                content = pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{bilingual_text}{m.group(2)}', content)
-            # 增加：翻译name属性
+                try:
+                    # 移除原文末尾可能多余的 \n
+                    processed_orig = clean_orig.rstrip('\\n')
+                    # 分割处理后的原文和翻译为行
+                    parts = processed_orig.split("\\n")
+                    trans_parts = trans.split("\\n")
+                    
+                    # 检查原文和翻译的行数是否一致 (使用处理后的原文行数)
+                    if len(parts) != len(trans_parts):
+                        print(f"警告: 文件 {csv_file} 中ID为 {row_id} 的narration条目，原文和翻译的行数不一致 (原文: {len(parts)}行, 翻译: {len(trans_parts)}行)")
+                        error_rows.append([
+                            csv_file, row_id, "narration行数不匹配", 
+                            processed_orig, trans, 
+                            f"原文行数: {len(parts)}, 翻译行数: {len(trans_parts)}"
+                        ])
+                        has_errors = True
+                        file_has_errors = True
+                        continue # 跳过处理此条目
+                        
+                    bilingual_text = "".join(
+                        [f"<r\\={p}>{tp}</r>\\r\\n" 
+                         for p, tp in zip(parts, trans_parts)]
+                    ).rstrip('\\r\\n')
+                    # 匹配 narration text= 属性
+                    pattern = re.compile(
+                        r'(narration text=)%s' % re.escape(orig),
+                    )
+                    new_content = pattern.sub(lambda m: f'{m.group(1)}{bilingual_text}', content)
+                    
+                    # 检查是否发生替换并更新内容和计数
+                    if new_content != content:
+                        content = new_content
+                        changes_count += 1
+                except Exception as e:
+                    print(f"处理文件 {csv_file} 中ID为 {row_id} 的narration条目时出错: {e}")
+                    error_rows.append([csv_file, row_id, "处理narration错误", processed_orig, trans, str(e)])
+                    has_errors = True
+                    file_has_errors = True
+                    continue # 跳过处理此条目
+
+            # 翻译name属性 (无论row_id是什么类型)
             if name and name_dict:
                 translated_name = name
-                for jp_name, cn_name in name_dict.items():
-                    if jp_name == name:
-                        translated_name = cn_name
-                        break
-                if translated_name != name:
-                    # 替换name属性
-                    name_pattern = re.compile(
-                        r'(name=)(["\']?)%s\2' % re.escape(name),
-                        flags= re.IGNORECASE
-                    )
-                    content = name_pattern.sub(lambda m: f'{m.group(1)}{m.group(2)}{translated_name}{m.group(2)}', content)
-        # 写入新文件
-        with open(output_path, 'w', encoding='utf-8') as f:
-            f.write(content)
-        print(f"已生成中日双语文件: {output_path}")
+                # 在name_dict中查找翻译
+                found_name_translation = name_dict.get(name)
+                if found_name_translation and translated_name != found_name_translation:
+                    translated_name = found_name_translation
+                
+                if translated_name != name: # 如果找到了不同的翻译
+                    try:
+                        name_pattern = re.compile(
+                            r'(name=)%s' % re.escape(name),
+                        )
+                        new_content = content # 使用临时变量进行替换，避免影响后续name替换
+                        new_content = name_pattern.sub(lambda m: f'{m.group(1)}{translated_name}', new_content) # 直接替换name值，不加引号，因为name值通常没有引号
+
+                        if new_content != content:
+                            content = new_content
+                            # 不增加 changes_count，因为它不是文本内容的替换
+                    except Exception as e:
+                         print(f"处理文件 {csv_file} 中ID为 {row_id} 的name属性时出错: {e}")
+                         error_rows.append([csv_file, row_id, "处理name属性错误", name, translated_name, str(e)])
+                         has_errors = True
+                         file_has_errors = True
+
+        # 如果文件处理过程中没有错误，则写入新文件
+        if not file_has_errors:
+            try:
+                with open(output_path, 'w', encoding='utf-8') as f:
+                    f.write(content)
+                print(f"已生成中日双语文件: {output_path} (进行了 {changes_count} 处文本替换)")
+            except Exception as e:
+                print(f"错误: 写入文件 {output_path} 时出错: {e}")
+                error_rows.append([csv_file, "N/A", "文件写入错误", "", "", str(e)])
+                has_errors = True
+        else:
+            print(f"文件 {csv_file} 处理过程中存在错误，跳过生成输出文件")
+    
+    # 在处理完所有文件后调用 process_unit_files_in_folder (总是处理)
+    print("\n正在处理adv_unit_开头的文件...")
+    process_unit_files_in_folder(output_dir) # 无条件调用
+    
+    # 如果有错误，写入错误报告
+    if has_errors:
+        try:
+            with open(error_report_file, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerows(error_rows)
+            print(f"\n处理过程中发现错误，详细信息已保存到: {os.path.abspath(error_report_file)}")
+        except Exception as e:
+            print(f"错误: 写入错误报告时出错: {e}")
+    
     print("\n合并完成！请检查以下目录:")
     print(f"- 翻译结果: {os.path.abspath(output_dir)}")
-    print("下一步建议:")
-    print("1. 手动检查合并结果")
-    print("2. 将最终文件复制回游戏目录")
+    if has_errors:
+        print(f"- 错误报告: {os.path.abspath(error_report_file)}")
+    else:
+        print("未检测到处理错误。")

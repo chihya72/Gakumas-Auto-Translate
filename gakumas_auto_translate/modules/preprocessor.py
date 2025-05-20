@@ -8,7 +8,7 @@ import csv
 import json
 import shutil
 from pathlib import Path
-from .utils import remove_r_tags_inplace
+from .utils import remove_r_tags_inplace, clean_html_tags
 
 def preprocess_txt_files():
     """预处理待翻译的txt文件（包含message、choice和narration）"""
@@ -74,7 +74,7 @@ def preprocess_txt_files():
                     continue
             
             # 匹配narration类型
-            narration_match = re.match(r'\[narration text=([^\s"\']+)', line)
+            narration_match = re.match(r'\[\[?narration text=(.*?)(?:\]|\s+\w+=)', line)
             if narration_match:
                 text_content = narration_match.group(1).strip('"')
                 extracted_data.append({
@@ -121,6 +121,11 @@ def preprocess_txt_files():
     # 预处理完成后，立即进行字典替换
     print("\n正在执行字典替换...")
     replace_names_in_csv()
+
+    # 在字典替换后，对csv_dict中的所有CSV文件进行HTML标签清理
+    print("\n正在清理CSV文件中的HTML标签...")
+    clean_html_in_csv_dict() # 新增调用
+
     return True
 
 
@@ -160,45 +165,135 @@ def replace_names_in_csv():
         
         # 读取CSV文件
         rows = []
-        with open(file_path, 'r', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            rows = list(reader)
+        fieldnames = []
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                fieldnames = reader.fieldnames
+                rows = list(reader)
+        except Exception as e:
+            print(f"读取CSV文件 {filename} 时出错: {e}")
+            continue
         
+        if not rows or not fieldnames: # 确保读取成功且文件非空
+            print(f"跳过空文件或读取失败的文件: {filename}")
+            continue
+            
         # 遍历每一行进行替换
-        file_replaced = 0
+        file_replaced_by_dict = 0 # 记录字典替换次数
         for row in rows:
-            original_text = row['text']
+            original_text = row.get('text', '')
+            if not isinstance(original_text, str): # 确保text字段是字符串
+                original_text = str(original_text)
             
             # 对文本进行替换
             replaced_text = original_text
             for jp_term, cn_term in name_dict.items():
                 # 使用正则表达式确保完整匹配词语
+                # 注意: re.sub如果找不到匹配，会返回原字符串，所以不需要 pre-check jp_term in replaced_text
                 replaced_text = re.sub(r'\b' + re.escape(jp_term) + r'\b', cn_term, replaced_text)
                 
                 # 也检查不带词边界的情况（对日文可能更合适）
-                if jp_term in replaced_text:
+                # 确保先进行带边界的替换，再进行不带边界的，避免部分替换问题
+                # 或者根据实际需求调整这里的逻辑，例如只用一种或根据字典项特性选择
+                if jp_term in replaced_text: # 再次检查是为了处理第一次re.sub可能未覆盖的情况
                     replaced_text = replaced_text.replace(jp_term, cn_term)
             
             # 如果有替换，更新文本
             if replaced_text != original_text:
                 row['text'] = replaced_text
-                file_replaced += 1
+                file_replaced_by_dict += 1
         
-        # 只有在有实际替换时才写回文件
-        if file_replaced > 0:
-            with open(file_path, 'w', encoding='utf-8', newline='') as f:
-                writer = csv.DictWriter(f, fieldnames=rows[0].keys())
-                writer.writeheader()
-                writer.writerows(rows)
-            
-            processed_count += 1
-            replaced_count += file_replaced
-            print(f"处理文件 {filename}: 替换了 {file_replaced} 处内容")
-    
+        # 只有在有实际字典替换时才写回文件
+        if file_replaced_by_dict > 0:
+            try:
+                with open(file_path, 'w', encoding='utf-8', newline='') as f:
+                    writer = csv.DictWriter(f, fieldnames=fieldnames)
+                    writer.writeheader()
+                    writer.writerows(rows)
+                
+                processed_count += 1
+                replaced_count += file_replaced_by_dict
+                print(f"处理文件 {filename} (字典替换): 替换了 {file_replaced_by_dict} 处内容")
+            except Exception as e:
+                print(f"写入CSV文件 {filename} (字典替换后) 时出错: {e}")
+
     # 输出处理摘要
     if processed_count > 0:
-        print(f"\n完成替换！处理了 {processed_count} 个文件，共替换 {replaced_count} 处内容")
-        return True
+        print(f"\n完成字典替换！处理了 {processed_count} 个文件，共替换 {replaced_count} 处内容")
     else:
-        print("\n未发现需要替换的内容")
+        print("\n未发现需要字典替换的内容")
+    return True # 字典替换本身无论是否替换都算完成
+
+
+def clean_html_in_csv_dict():
+    """清理csv_dict目录下所有CSV文件text列的HTML标签"""
+    csv_dir = "./todo/untranslated/csv_dict"
+    csv_files = [f for f in os.listdir(csv_dir) if f.endswith(".csv")]
+
+    if not csv_files:
+        print("在 {csv_dir} 中没有找到需要清理HTML标签的CSV文件")
         return False
+
+    cleaned_files_count = 0
+    total_lines_cleaned = 0
+
+    for filename in csv_files:
+        file_path = os.path.join(csv_dir, filename)
+        rows = []
+        fieldnames = []
+        original_content_for_comparison = [] # 用于比较是否有实际内容变化
+        
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                fieldnames = reader.fieldnames
+                if not fieldnames: # 处理空CSV或无表头的情况
+                    print(f"跳过文件 {filename}，无表头或为空。")
+                    continue
+                for row in reader:
+                    rows.append(dict(row)) # 创建副本，避免修改影响迭代器
+                    original_content_for_comparison.append(dict(row)) # 存储原始行用于比较
+
+        except Exception as e:
+            print(f"读取CSV文件 {filename} (HTML清理前) 时出错: {e}")
+            continue
+
+        if not rows:
+            print(f"文件 {filename} 为空或读取失败，跳过HTML清理。")
+            continue
+
+        lines_cleaned_in_file = 0
+        file_content_changed = False
+
+        for i, row in enumerate(rows):
+            original_text = row.get('text', '')
+            if not isinstance(original_text, str):
+                 original_text = str(original_text)
+
+            cleaned_text = clean_html_tags(original_text)
+
+            if cleaned_text != original_text:
+                row['text'] = cleaned_text
+                lines_cleaned_in_file += 1
+                file_content_changed = True
+        
+        if file_content_changed: # 只有当文件内容因HTML清理而改变时才写回
+            try:
+                with open(file_path, 'w', encoding='utf-8', newline='') as f:
+                    writer = csv.DictWriter(f, fieldnames=fieldnames)
+                    writer.writeheader()
+                    writer.writerows(rows)
+                print(f"处理文件 {filename} (HTML清理): 清理了 {lines_cleaned_in_file} 行的HTML标签")
+                cleaned_files_count += 1
+                total_lines_cleaned += lines_cleaned_in_file
+            except Exception as e:
+                print(f"写入CSV文件 {filename} (HTML清理后) 时出错: {e}")
+        else:
+            print(f"文件 {filename} (HTML清理): 无需清理HTML标签或内容未改变")
+
+    if cleaned_files_count > 0:
+        print(f"\n完成HTML标签清理！处理了 {cleaned_files_count} 个文件，共清理了 {total_lines_cleaned} 行的HTML标签。")
+    else:
+        print("\n未发现需要清理HTML标签的内容，或内容清理后未发生变化。")
+    return True
