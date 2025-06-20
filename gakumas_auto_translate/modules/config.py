@@ -9,12 +9,13 @@ from .utils import create_sample_dictionary, ensure_dir_exists
 
 # 全局配置变量
 dump_txt_path = None
+translation_mode = "bilingual"  # 翻译模式：bilingual（双语）或 chinese（纯中文）
 # 配置文件路径
 CONFIG_FILE = "./config.json"
 
 def load_config():
     """从配置文件加载设置"""
-    global dump_txt_path
+    global dump_txt_path, translation_mode
     
     if os.path.exists(CONFIG_FILE):
         try:
@@ -22,9 +23,13 @@ def load_config():
                 config = json.load(f)
                 if 'dump_txt_path' in config and os.path.exists(config['dump_txt_path']):
                     dump_txt_path = config['dump_txt_path']
+                    # 加载翻译模式配置，默认为双语模式
+                    translation_mode = config.get('translation_mode', 'bilingual')
                     return True
                 else:
                     print("配置文件中的dump_txt_path不存在或无效")
+                    # 即使dump_txt_path无效，也要加载翻译模式
+                    translation_mode = config.get('translation_mode', 'bilingual')
                     return False
         except Exception as e:
             print(f"读取配置文件时出错: {e}")
@@ -35,10 +40,11 @@ def load_config():
 
 def save_config():
     """保存设置到配置文件"""
-    global dump_txt_path
+    global dump_txt_path, translation_mode
     
     config = {
-        'dump_txt_path': dump_txt_path
+        'dump_txt_path': dump_txt_path,
+        'translation_mode': translation_mode
     }
     
     try:
@@ -114,3 +120,40 @@ def set_dump_txt_path(path):
     else:
         print(f"路径不存在: {path}")
         return False
+
+def get_translation_mode():
+    """获取当前翻译模式"""
+    global translation_mode
+    
+    # 如果当前没有加载配置，尝试加载
+    if translation_mode is None:
+        load_config()
+        
+    return translation_mode
+
+def set_translation_mode(mode):
+    """设置翻译模式"""
+    global translation_mode
+    
+    if mode in ['bilingual', 'chinese']:
+        translation_mode = mode
+        # 保存配置到文件
+        save_config()
+        return True
+    else:
+        print(f"无效的翻译模式: {mode}")
+        return False
+
+def get_translation_mode_display():
+    """获取翻译模式的显示名称"""
+    mode = get_translation_mode()
+    return "中日双语" if mode == "bilingual" else "纯中文"
+
+def toggle_translation_mode():
+    """切换翻译模式"""
+    current_mode = get_translation_mode()
+    new_mode = "chinese" if current_mode == "bilingual" else "bilingual"
+    if set_translation_mode(new_mode):
+        print(f"翻译模式已切换为: {get_translation_mode_display()}")
+        return True
+    return False

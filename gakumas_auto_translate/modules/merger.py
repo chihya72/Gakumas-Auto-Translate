@@ -8,6 +8,7 @@ import csv
 import json
 import shutil
 from .utils import clean_html_tags, process_unit_files_in_folder  # 添加导入
+from .config import get_translation_mode  # 添加导入
 
 def merge_translations():
     """合并翻译文件的主函数"""
@@ -107,9 +108,14 @@ def merge_translations():
         else:
             print(f"文件 {filename} 无需更新text字段")
     
-    # 步骤4: 直接执行中日双语合并模式
-    print("\n正在执行中日双语合并模式...")
-    process_bilingual()
+    # 步骤4: 根据翻译模式执行不同的合并逻辑
+    translation_mode = get_translation_mode()
+    if translation_mode == "bilingual":
+        print("\n正在执行中日双语合并模式...")
+        process_bilingual()
+    else:
+        print("\n正在执行纯中文合并模式...")
+        process_chinese_only()
     return True
 
 
@@ -346,6 +352,192 @@ def process_bilingual():
                 with open(output_path, 'w', encoding='utf-8') as f:
                     f.write(content)
                 print(f"已生成中日双语文件: {output_path} (进行了 {changes_count} 处文本替换)")
+            except Exception as e:
+                print(f"错误: 写入文件 {output_path} 时出错: {e}")
+                error_rows.append([csv_file, "N/A", "文件写入错误", "", "", str(e)])
+                has_errors = True
+        else:
+            print(f"文件 {csv_file} 处理过程中存在错误，跳过生成输出文件")
+    
+    # 在处理完所有文件后调用 process_unit_files_in_folder (总是处理)
+    print("\n正在处理adv_unit_开头的文件...")
+    process_unit_files_in_folder(output_dir) # 无条件调用
+    
+    # 如果有错误，写入错误报告
+    if has_errors:
+        try:
+            with open(error_report_file, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerows(error_rows)
+            print(f"\n处理过程中发现错误，详细信息已保存到: {os.path.abspath(error_report_file)}")
+        except Exception as e:
+            print(f"错误: 写入错误报告时出错: {e}")
+    
+    print("\n合并完成！请检查以下目录:")
+    print(f"- 翻译结果: {os.path.abspath(output_dir)}")
+    if has_errors:
+        print(f"- 错误报告: {os.path.abspath(error_report_file)}")
+    else:
+        print("未检测到处理错误。")
+
+
+def process_chinese_only():
+    """处理纯中文合并逻辑"""
+    # 定义路径常量
+    csv_dir = "./todo/translated/csv"
+    untranslated_txt_dir = "./todo/untranslated/txt"
+    output_dir = "./todo/translated/txt"
+    dict_file = "./name_dictionary.json"
+    error_report_file = "./error_report_chinese.csv" # 定义错误报告文件路径
+    
+    # 初始化错误记录
+    has_errors = False
+    error_rows = [['文件', 'ID', '错误类型', '原文', '翻译', '详细信息']] # 错误报告头部
+    
+    # 加载名称字典
+    name_dict = {}
+    if os.path.exists(dict_file):
+        try:
+            with open(dict_file, 'r', encoding='utf-8') as f:
+                name_dict = json.load(f)
+                print(f"已加载字典，包含 {len(name_dict)} 个替换项")
+        except Exception as e:
+            print(f"加载字典文件时出错: {e}")
+    else:
+        print(f"字典文件不存在: {dict_file}，将跳过人名翻译")
+    
+    # 创建输出目录
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # 获取CSV文件列表
+    csv_files = [f for f in os.listdir(csv_dir) if f.endswith(".csv")]
+    
+    for csv_file in csv_files:
+        # 构造文件路径
+        csv_path = os.path.join(csv_dir, csv_file)
+        txt_file = csv_file.replace(".csv", ".txt")
+        txt_path = os.path.join(untranslated_txt_dir, txt_file)
+        output_path = os.path.join(output_dir, txt_file)
+        
+        # 检查原始TXT文件是否存在
+        if not os.path.exists(txt_path):
+            print(f"警告：跳过 {csv_file}，未找到对应的原始TXT文件")
+            continue
+        
+        # 读取CSV内容
+        replace_items = []
+        try:
+            with open(csv_path, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                replace_items = list(reader)
+        except Exception as e:
+            print(f"错误: 读取文件 {csv_file} 时出错: {e}")
+            error_rows.append([csv_file, "N/A", "文件读取错误", "", "", str(e)])
+            has_errors = True
+            continue # 跳过此文件
+            
+        # 按原文长度降序排序
+        replace_items.sort(key=lambda x: len(x.get('text', '') or ""), reverse=True)
+        
+        # 读取原始文本内容
+        try:
+            with open(txt_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+        except Exception as e:
+            print(f"错误: 读取文件 {txt_file} 时出错: {e}")
+            error_rows.append([csv_file, "N/A", "原始文件读取错误", "", "", str(e)])
+            has_errors = True
+            continue # 跳过此文件
+            
+        # 进行文本替换
+        changes_count = 0 # 记录当前文件替换次数
+        file_has_errors = False # 标记当前文件是否有错误
+        
+        for row in replace_items:
+            row_id = row.get('id', '')
+            orig = row.get('text', '')
+            trans = row.get('trans', '')
+            name = row.get('name', '')
+            
+            if not orig or not trans:
+                # 根据用户需求，对不同ID的空条目进行区分处理
+                if row_id == 'info' or row_id == '译者':
+                    # ID为info或译者，原文或翻译为空是正常情况，只跳过，不记录错误
+                    pass
+                else:
+                    # 其他ID，原文或翻译为空视为错误
+                    print(f"错误: 文件 {csv_file} 中ID为 {row_id} 的条目原文或翻译为空")
+                    error_rows.append([csv_file, row_id, "条目内容不完整", orig, trans, "原文或翻译为空"])
+                    has_errors = True
+                    file_has_errors = True
+                continue # 跳过处理当前条目
+            
+            # 纯中文模式：直接用翻译替换原文，不需要清理原文中的标签
+            try:
+                if row_id == 'select':
+                    # 处理select类型 - 直接替换文本内容
+                    pattern = re.compile(
+                        r'(choice text=)%s' % re.escape(orig),
+                    )
+                    new_content = pattern.sub(lambda m: f'{m.group(1)}{trans}', content)
+                    if new_content != content:
+                        content = new_content
+                        changes_count += 1
+                elif row_id == '0000000000000':
+                    # 处理message类型 - 直接替换
+                    pattern = re.compile(
+                        r'(message text=)%s' % re.escape(orig),
+                    )
+                    new_content = pattern.sub(lambda m: f'{m.group(1)}{trans}', content)
+                    if new_content != content:
+                        content = new_content
+                        changes_count += 1
+                elif row_id == 'narration':
+                    # 处理narration类型 - 直接替换
+                    pattern = re.compile(
+                        r'(narration text=)%s' % re.escape(orig),
+                    )
+                    new_content = pattern.sub(lambda m: f'{m.group(1)}{trans}', content)
+                    if new_content != content:
+                        content = new_content
+                        changes_count += 1
+                        
+            except Exception as e:
+                print(f"处理文件 {csv_file} 中ID为 {row_id} 的条目时出错: {e}")
+                error_rows.append([csv_file, row_id, "纯中文处理错误", orig, trans, str(e)])
+                has_errors = True
+                file_has_errors = True
+                continue
+
+            # 翻译name属性 (无论row_id是什么类型)
+            if name and name_dict:
+                translated_name = name
+                # 在name_dict中查找翻译
+                found_name_translation = name_dict.get(name)
+                if found_name_translation and translated_name != found_name_translation:
+                    translated_name = found_name_translation
+                
+                if translated_name != name: # 如果找到了不同的翻译
+                    try:
+                        name_pattern = re.compile(
+                            r'(name=)%s' % re.escape(name),
+                        )
+                        new_content = name_pattern.sub(lambda m: f'{m.group(1)}{translated_name}', content)
+                        if new_content != content:
+                            content = new_content
+                            # 不增加 changes_count，因为它不是文本内容的替换
+                    except Exception as e:
+                         print(f"处理文件 {csv_file} 中ID为 {row_id} 的name属性时出错: {e}")
+                         error_rows.append([csv_file, row_id, "处理name属性错误", name, translated_name, str(e)])
+                         has_errors = True
+                         file_has_errors = True
+
+        # 如果文件处理过程中没有错误，则写入新文件
+        if not file_has_errors:
+            try:
+                with open(output_path, 'w', encoding='utf-8') as f:
+                    f.write(content)
+                print(f"已生成纯中文文件: {output_path} (进行了 {changes_count} 处文本替换)")
             except Exception as e:
                 print(f"错误: 写入文件 {output_path} 时出错: {e}")
                 error_rows.append([csv_file, "N/A", "文件写入错误", "", "", str(e)])

@@ -7,12 +7,15 @@ from .modules import config, checker, preprocessor, translator, merger, cleaner
 
 def print_menu():
     """打印命令行菜单"""
-    print("\n==== Gakumas Auto Translate ====")
+    # 获取当前翻译模式
+    mode_display = config.get_translation_mode_display()
+    print(f"\n==== Gakumas Auto Translate (当前模式: {mode_display}) ====")
     print("1. 检查是否有新增未翻译文本")
     print("2. 预处理待翻译的原始文本（包含自动人名替换）")
     print("3. 翻译csv文件")
     print("4. 合并翻译文件")
     print("5. 完成并清理临时文件")
+    print("6. 切换翻译模式")
     print("9. 配置并检测所需目录")
     print("0. 退出程序")
 
@@ -51,6 +54,9 @@ def main():
         elif choice == '5':
             # 功能5不直接访问dump_txt_path，无需检查配置
             cleaner.cleanup_and_copy()
+        elif choice == '6':
+            # 切换翻译模式
+            config.toggle_translation_mode()
         elif choice == '9':
             # 配置目录并确保 config.json 已创建
             dump_txt_path = config.configure_directories()
