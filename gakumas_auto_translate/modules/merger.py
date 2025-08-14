@@ -324,8 +324,13 @@ def process_bilingual():
             # 翻译name属性 (无论row_id是什么类型)
             if name and name_dict:
                 translated_name = name
-                # 在name_dict中查找翻译
-                found_name_translation = name_dict.get(name)
+                # 按照键长度从长到短排序，优先匹配较长的name
+                found_name_translation = None
+                for dict_name in sorted(name_dict.keys(), key=len, reverse=True):
+                    if name == dict_name:
+                        found_name_translation = name_dict[dict_name]
+                        break
+                
                 if found_name_translation and translated_name != found_name_translation:
                     translated_name = found_name_translation
                 
@@ -512,8 +517,13 @@ def process_chinese_only():
             # 翻译name属性 (无论row_id是什么类型)
             if name and name_dict:
                 translated_name = name
-                # 在name_dict中查找翻译
-                found_name_translation = name_dict.get(name)
+                # 按照键长度从长到短排序，优先匹配较长的name
+                found_name_translation = None
+                for dict_name in sorted(name_dict.keys(), key=len, reverse=True):
+                    if name == dict_name:
+                        found_name_translation = name_dict[dict_name]
+                        break
+                
                 if found_name_translation and translated_name != found_name_translation:
                     translated_name = found_name_translation
                 
