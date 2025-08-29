@@ -280,35 +280,13 @@ def process_bilingual():
                     file_has_errors = True
                     continue # 跳过处理此条目
 
-            elif row_id == 'narration':  # 处理narration
+            elif row_id == 'narration':  # 处理narration - 只保留中文翻译，不使用双语格式
                 try:
-                    # 移除原文末尾可能多余的 \n
-                    processed_orig = clean_orig.rstrip('\\n')
-                    # 分割处理后的原文和翻译为行
-                    parts = processed_orig.split("\\n")
-                    trans_parts = trans.split("\\n")
-                    
-                    # 检查原文和翻译的行数是否一致 (使用处理后的原文行数)
-                    if len(parts) != len(trans_parts):
-                        print(f"警告: 文件 {csv_file} 中ID为 {row_id} 的narration条目，原文和翻译的行数不一致 (原文: {len(parts)}行, 翻译: {len(trans_parts)}行)")
-                        error_rows.append([
-                            csv_file, row_id, "narration行数不匹配", 
-                            processed_orig, trans, 
-                            f"原文行数: {len(parts)}, 翻译行数: {len(trans_parts)}"
-                        ])
-                        has_errors = True
-                        file_has_errors = True
-                        continue # 跳过处理此条目
-                        
-                    bilingual_text = "".join(
-                        [f"<r\\={p}>{tp}</r>\\r\\n" 
-                         for p, tp in zip(parts, trans_parts)]
-                    ).rstrip('\\r\\n')
-                    # 匹配 narration text= 属性
+                    # 匹配 narration text= 属性，直接替换为翻译
                     pattern = re.compile(
                         r'(narration text=)%s' % re.escape(orig),
                     )
-                    new_content = pattern.sub(lambda m: f'{m.group(1)}{bilingual_text}', content)
+                    new_content = pattern.sub(lambda m: f'{m.group(1)}{trans}', content)
                     
                     # 检查是否发生替换并更新内容和计数
                     if new_content != content:
@@ -316,7 +294,7 @@ def process_bilingual():
                         changes_count += 1
                 except Exception as e:
                     print(f"处理文件 {csv_file} 中ID为 {row_id} 的narration条目时出错: {e}")
-                    error_rows.append([csv_file, row_id, "处理narration错误", processed_orig, trans, str(e)])
+                    error_rows.append([csv_file, row_id, "处理narration错误", orig, trans, str(e)])
                     has_errors = True
                     file_has_errors = True
                     continue # 跳过处理此条目
