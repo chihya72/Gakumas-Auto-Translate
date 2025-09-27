@@ -182,13 +182,25 @@ def replace_names_in_csv():
         # 遍历每一行进行替换
         file_replaced_by_dict = 0 # 记录字典替换次数
         for row in rows:
+            # 处理text字段
             original_text = row.get('text', '')
             if not isinstance(original_text, str): # 确保text字段是字符串
                 original_text = str(original_text)
             
+            # 处理name字段
+            original_name = row.get('name', '')
+            if not isinstance(original_name, str): # 确保name字段是字符串
+                original_name = str(original_name)
+            
             # 对文本进行替换
             replaced_text = original_text
-            for jp_term, cn_term in name_dict.items():
+            replaced_name = original_name
+            
+            # 按照键长度从长到短排序，优先匹配较长的词语，避免部分替换问题
+            for jp_term in sorted(name_dict.keys(), key=len, reverse=True):
+                cn_term = name_dict[jp_term]
+                
+                # 处理text字段的替换
                 # 使用正则表达式确保完整匹配词语
                 # 注意: re.sub如果找不到匹配，会返回原字符串，所以不需要 pre-check jp_term in replaced_text
                 replaced_text = re.sub(r'\b' + re.escape(jp_term) + r'\b', cn_term, replaced_text)
@@ -198,10 +210,19 @@ def replace_names_in_csv():
                 # 或者根据实际需求调整这里的逻辑，例如只用一种或根据字典项特性选择
                 if jp_term in replaced_text: # 再次检查是为了处理第一次re.sub可能未覆盖的情况
                     replaced_text = replaced_text.replace(jp_term, cn_term)
+                
+                # 处理name字段的替换（name字段通常是精确匹配）
+                if jp_term == original_name:
+                    replaced_name = cn_term
             
             # 如果有替换，更新文本
             if replaced_text != original_text:
                 row['text'] = replaced_text
+                file_replaced_by_dict += 1
+            
+            # 如果有name字段替换，更新name
+            if replaced_name != original_name:
+                row['name'] = replaced_name
                 file_replaced_by_dict += 1
         
         # 只有在有实际字典替换时才写回文件

@@ -280,15 +280,32 @@ def process_bilingual():
                     file_has_errors = True
                     continue # 跳过处理此条目
 
-            elif row_id == 'narration':  # 处理narration - 只保留中文翻译，不使用双语格式
+            elif row_id == 'narration':  # 处理narration - 转换为中日双语格式
                 try:
-                    # 匹配 narration text= 属性，直接替换为翻译
+                    processed_orig = clean_orig.rstrip('\\n')
+                    orig_parts = processed_orig.split("\\n")
+                    trans_parts = trans.split("\\n")
+
+                    if len(orig_parts) != len(trans_parts):
+                        print(f"警告: 文件 {csv_file} 中ID为 {row_id} 的条目，原文和翻译的行数不一致 (原文: {len(orig_parts)}行, 翻译: {len(trans_parts)}行)")
+                        error_rows.append([
+                            csv_file, row_id, "行数不匹配",
+                            processed_orig, trans,
+                            f"原文行数: {len(orig_parts)}, 翻译行数: {len(trans_parts)}"
+                        ])
+                        has_errors = True
+                        file_has_errors = True
+                        continue
+
+                    bilingual_text = "".join(
+                        [f"<r\\={p}>{tp}</r>\\r\\n" for p, tp in zip(orig_parts, trans_parts)]
+                    ).rstrip('\\r\\n')
+
                     pattern = re.compile(
                         r'(narration text=)%s' % re.escape(orig),
                     )
-                    new_content = pattern.sub(lambda m: f'{m.group(1)}{trans}', content)
-                    
-                    # 检查是否发生替换并更新内容和计数
+                    new_content = pattern.sub(lambda m: f'{m.group(1)}{bilingual_text}', content)
+
                     if new_content != content:
                         content = new_content
                         changes_count += 1
@@ -314,8 +331,10 @@ def process_bilingual():
                 
                 if translated_name != name: # 如果找到了不同的翻译
                     try:
+                        # 使用更精确的正则表达式，确保只匹配完整的name值
+                        # 匹配 name=完整值，后面跟空格或]或其他非字母数字字符
                         name_pattern = re.compile(
-                            r'(name=)%s' % re.escape(name),
+                            r'(name=)%s(?=[\s\]\}]|$)' % re.escape(name),
                         )
                         new_content = content # 使用临时变量进行替换，避免影响后续name替换
                         new_content = name_pattern.sub(lambda m: f'{m.group(1)}{translated_name}', new_content) # 直接替换name值，不加引号，因为name值通常没有引号
@@ -507,8 +526,10 @@ def process_chinese_only():
                 
                 if translated_name != name: # 如果找到了不同的翻译
                     try:
+                        # 使用更精确的正则表达式，确保只匹配完整的name值
+                        # 匹配 name=完整值，后面跟空格或]或其他非字母数字字符
                         name_pattern = re.compile(
-                            r'(name=)%s' % re.escape(name),
+                            r'(name=)%s(?=[\s\]\}]|$)' % re.escape(name),
                         )
                         new_content = name_pattern.sub(lambda m: f'{m.group(1)}{translated_name}', content)
                         if new_content != content:
