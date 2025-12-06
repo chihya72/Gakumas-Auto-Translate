@@ -238,8 +238,28 @@ def process_bilingual():
                     has_errors = True
                     file_has_errors = True
 
-            elif row_id == '0000000000000':
-                # 处理0000000000000类型 - 需要中日双语
+            elif row_id == '0000000000000' and name == '__narration__':
+                # 处理narration类型 (id=0000000000000, name=__narration__) - 只保留中文翻译，不使用双语格式
+                try:
+                    # 匹配 narration text= 属性，直接替换为翻译
+                    pattern = re.compile(
+                        r'(narration text=)%s' % re.escape(orig),
+                    )
+                    new_content = pattern.sub(lambda m: f'{m.group(1)}{trans}', content)
+                    
+                    # 检查是否发生替换并更新内容和计数
+                    if new_content != content:
+                        content = new_content
+                        changes_count += 1
+                except Exception as e:
+                    print(f"处理文件 {csv_file} 中ID为 {row_id} 的narration条目时出错: {e}")
+                    error_rows.append([csv_file, row_id, "处理narration错误", orig, trans, str(e)])
+                    has_errors = True
+                    file_has_errors = True
+                    continue # 跳过处理此条目
+
+            elif row_id == '0000000000000' and name != '__narration__':
+                # 处理message类型 (id=0000000000000, name!=__narration__) - 需要中日双语
                 try:
                     # 移除原文末尾可能多余的 \n
                     processed_orig = clean_orig.rstrip('\\n')
@@ -276,25 +296,6 @@ def process_bilingual():
                 except Exception as e:
                     print(f"处理文件 {csv_file} 中ID为 {row_id} 的条目时出错: {e}")
                     error_rows.append([csv_file, row_id, "处理错误", processed_orig, trans, str(e)])
-                    has_errors = True
-                    file_has_errors = True
-                    continue # 跳过处理此条目
-
-            elif row_id == 'narration':  # 处理narration - 只保留中文翻译，不使用双语格式
-                try:
-                    # 匹配 narration text= 属性，直接替换为翻译
-                    pattern = re.compile(
-                        r'(narration text=)%s' % re.escape(orig),
-                    )
-                    new_content = pattern.sub(lambda m: f'{m.group(1)}{trans}', content)
-                    
-                    # 检查是否发生替换并更新内容和计数
-                    if new_content != content:
-                        content = new_content
-                        changes_count += 1
-                except Exception as e:
-                    print(f"处理文件 {csv_file} 中ID为 {row_id} 的narration条目时出错: {e}")
-                    error_rows.append([csv_file, row_id, "处理narration错误", orig, trans, str(e)])
                     has_errors = True
                     file_has_errors = True
                     continue # 跳过处理此条目
@@ -466,19 +467,19 @@ def process_chinese_only():
                     if new_content != content:
                         content = new_content
                         changes_count += 1
-                elif row_id == '0000000000000':
-                    # 处理message类型 - 直接替换
+                elif row_id == '0000000000000' and name == '__narration__':
+                    # 处理narration类型 (id=0000000000000, name=__narration__) - 根据id和name字段判断
                     pattern = re.compile(
-                        r'(message text=)%s' % re.escape(orig),
+                        r'(narration text=)%s' % re.escape(orig),
                     )
                     new_content = pattern.sub(lambda m: f'{m.group(1)}{trans}', content)
                     if new_content != content:
                         content = new_content
                         changes_count += 1
-                elif row_id == 'narration':
-                    # 处理narration类型 - 直接替换
+                elif row_id == '0000000000000' and name != '__narration__':
+                    # 处理message类型 (id=0000000000000, name!=__narration__) - 直接替换
                     pattern = re.compile(
-                        r'(narration text=)%s' % re.escape(orig),
+                        r'(message text=)%s' % re.escape(orig),
                     )
                     new_content = pattern.sub(lambda m: f'{m.group(1)}{trans}', content)
                     if new_content != content:
