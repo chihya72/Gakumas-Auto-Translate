@@ -61,7 +61,7 @@ def preprocess_txt_files():
                 continue
             
             # 匹配choices类型
-            choices_match = re.findall(r'choice text=([^]]+?)\]', line)
+            choices_match = re.findall(r'choice text=(.*?)(?:\s+\w+=|\])', line)
             if choices_match:
                 for choice_text in choices_match:
                     clean_text = choice_text.strip('"')

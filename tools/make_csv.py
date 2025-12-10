@@ -10,7 +10,7 @@ BILINGUAL_R_TAG_EXTRACTOR_RE = re.compile(r"<r\\=[\s\S]*?>([\s\S]*?)(?:</r>|/r>)
 BILINGUAL_MESSAGE_RE = re.compile(r"\[message text=([\s\S]+?) name=[\s\S]*? clip=.*?\"_startTime\":([\d\.]+).*?\]")
 BILINGUAL_NARRATION_RE = re.compile(r"\[narration text=([\s\S]+?) (?:hide=true )?clip=.*?\"_startTime\":([\d\.]+).*?\]")
 BILINGUAL_CHOICE_GROUP_RE = re.compile(r"\[choicegroup choices=\[(.*?)\] clip=.*?\"_startTime\":([\d\.]+).*?\]")
-CHOICE_TEXT_EXTRACTOR_RE = re.compile(r"choice text=([\s\S]*?)(?=\] choices=\[choice text=|$)")
+CHOICE_TEXT_EXTRACTOR_RE = re.compile(r"choice text=([\s\S]*?)(?=\s+\w+=|\] choices=\[choice text=|\])")
 
 
 # === 用于日文原文文件 (ORIGINAL JAPANESE) ===
@@ -22,7 +22,7 @@ ORIGINAL_MESSAGE_RE = re.compile(
 )
 ORIGINAL_NARRATION_RE = re.compile(r"\[narration text=([\s\S]+?) (?:hide=true )?clip=.*?\"_startTime\":([\d\.]+).*?\]")
 ORIGINAL_CHOICE_GROUP_RE = re.compile(r"\[choicegroup choices=\[(.*?)\] clip=.*?\"_startTime\":([\d\.]+).*?\]")
-ORIGINAL_CHOICE_TEXT_EXTRACTOR_RE = re.compile(r"choice text=([\s\S]*?)(?=\] choices=\[choice text=|$)")
+ORIGINAL_CHOICE_TEXT_EXTRACTOR_RE = re.compile(r"choice text=([\s\S]*?)(?=\s+\w+=|\] choices=\[choice text=|\])")
 
 
 def get_raw_japanese_text(raw_text_content_from_original):
