@@ -47,7 +47,8 @@ def merge_translations():
     csv_orig_dir = "./todo/untranslated/csv_orig"  # 使用csv_orig目录
     
     print("\n正在恢复原始text字段，保留翻译结果...")
-    for filename in translated_files:
+    # 使用sorted确保顺序一致
+    for filename in sorted(translated_files):
         # 获取原始未替换的文本
         orig_csv_path = os.path.join(csv_orig_dir, filename)
         translated_csv_path = os.path.join(target_csv_dir, filename)
@@ -99,6 +100,11 @@ def merge_translations():
         
         # 保存更新后的翻译文件
         with open(translated_csv_path, 'w', encoding='utf-8', newline='') as f:
+            # 检查trans_rows是否为空
+            if not trans_rows:
+                print(f"警告: 文件 {filename} 没有数据行，跳过保存")
+                continue
+            
             writer = csv.DictWriter(f, fieldnames=trans_rows[0].keys())
             writer.writeheader()
             writer.writerows(trans_rows)
@@ -198,6 +204,10 @@ def process_bilingual():
             trans = row.get('trans', '')
             name = row.get('name', '')
             
+            # 立即保存副本用于错误报告
+            orig_copy = orig
+            trans_copy = trans
+            
             if not orig or not trans:
                 # 根据用户需求，对不同ID的空条目进行区分处理
                 if row_id == 'info' or row_id == '译者':
@@ -208,7 +218,7 @@ def process_bilingual():
                 else:
                     # 其他ID，原文或翻译为空视为错误
                     print(f"错误: 文件 {csv_file} 中ID为 {row_id} 的条目原文或翻译为空")
-                    error_rows.append([csv_file, row_id, "条目内容不完整", orig, trans, "原文或翻译为空"])
+                    error_rows.append([csv_file, row_id, "条目内容不完整", orig_copy, trans_copy, "原文或翻译为空"])
                     has_errors = True
                     file_has_errors = True # 标记文件有错误
 
@@ -219,6 +229,22 @@ def process_bilingual():
             
             # 临时存储当前替换后的内容，用于对比是否发生变化
             current_content = content
+            
+            # 对于message类型，在处理前检查末尾\n是否一致（使用清理后的文本）
+            if row_id == '0000000000000' and name != '__narration__' and name != '__title__':
+                orig_ends_with_newline = clean_orig.endswith('\\n')
+                trans_ends_with_newline = trans.endswith('\\n')
+                
+                if orig_ends_with_newline != trans_ends_with_newline:
+                    print(f"警告: 文件 {csv_file} 中ID为 {row_id} 的条目，原文和翻译的末尾\\n不一致")
+                    error_rows.append([
+                        csv_file, row_id, "末尾\\n不匹配", 
+                        orig_copy, trans_copy,
+                        f"原文末尾\\n: {orig_ends_with_newline}, 翻译末尾\\n: {trans_ends_with_newline}"
+                    ])
+                    has_errors = True
+                    file_has_errors = True
+                    continue  # 跳过处理此条目
             
             if row_id == 'select':
                 # 处理select类型 - 仅替换文本内容
@@ -237,6 +263,26 @@ def process_bilingual():
                     error_rows.append([csv_file, row_id, "处理select错误", orig, trans, str(e)])
                     has_errors = True
                     file_has_errors = True
+
+            elif row_id == '0000000000000' and name == '__title__':
+                # 处理title类型 (id=0000000000000, name=__title__) - 只保留中文翻译，不使用双语格式
+                try:
+                    # 匹配 title title= 属性，直接替换为翻译
+                    pattern = re.compile(
+                        r'(title title=)%s' % re.escape(orig),
+                    )
+                    new_content = pattern.sub(lambda m: f'{m.group(1)}{trans}', content)
+                    
+                    # 检查是否发生替换并更新内容和计数
+                    if new_content != content:
+                        content = new_content
+                        changes_count += 1
+                except Exception as e:
+                    print(f"处理文件 {csv_file} 中ID为 {row_id} 的title条目时出错: {e}")
+                    error_rows.append([csv_file, row_id, "处理title错误", orig, trans, str(e)])
+                    has_errors = True
+                    file_has_errors = True
+                    continue # 跳过处理此条目
 
             elif row_id == '0000000000000' and name == '__narration__':
                 # 处理narration类型 (id=0000000000000, name=__narration__) - 只保留中文翻译，不使用双语格式
@@ -258,31 +304,44 @@ def process_bilingual():
                     file_has_errors = True
                     continue # 跳过处理此条目
 
-            elif row_id == '0000000000000' and name != '__narration__':
-                # 处理message类型 (id=0000000000000, name!=__narration__) - 需要中日双语
+            elif row_id == '0000000000000' and name != '__narration__' and name != '__title__':
+                # 处理message类型 (id=0000000000000, name!=__narration__ and name!=__title__) - 需要中日双语
                 try:
-                    # 移除原文末尾可能多余的 \n
-                    processed_orig = clean_orig.rstrip('\\n')
-                    # 分割处理后的原文和翻译为行
-                    parts = processed_orig.split("\\n")
+                    # 直接分割
+                    parts = clean_orig.split("\\n")
                     trans_parts = trans.split("\\n")
                     
-                    # 检查原文和翻译的行数是否一致 (使用处理后的原文行数)
-                    if len(parts) != len(trans_parts):
-                        print(f"警告: 文件 {csv_file} 中ID为 {row_id} 的条目，原文和翻译的行数不一致 (原文: {len(parts)}行, 翻译: {len(trans_parts)}行)")
+                    # 计算实际行数：末尾的空字符串不算作一行
+                    orig_line_count = len(parts) - 1 if parts and parts[-1] == '' else len(parts)
+                    trans_line_count = len(trans_parts) - 1 if trans_parts and trans_parts[-1] == '' else len(trans_parts)
+                    
+                    # 检查原文和翻译的实际行数是否一致
+                    if orig_line_count != trans_line_count:
+                        print(f"警告: 文件 {csv_file} 中ID为 {row_id} 的条目，原文和翻译的行数不一致 (原文: {orig_line_count}行, 翻译: {trans_line_count}行)")
                         error_rows.append([
                             csv_file, row_id, "行数不匹配", 
-                            processed_orig, trans, 
-                            f"原文行数: {len(parts)}, 翻译行数: {len(trans_parts)}"
+                            orig_copy, trans_copy,
+                            f"原文行数: {orig_line_count}, 翻译行数: {trans_line_count}"
                         ])
                         has_errors = True
                         file_has_errors = True
                         continue  # 跳过处理此条目
+                    
+                    # 检查原文是否以\n结尾
+                    has_trailing_newline = clean_orig.endswith('\\n')
+                    
+                    # 移除末尾空字符串用于生成双语文本
+                    parts_for_text = parts[:-1] if parts and parts[-1] == '' else parts
+                    trans_parts_for_text = trans_parts[:-1] if trans_parts and trans_parts[-1] == '' else trans_parts
                         
                     bilingual_text = "".join(
                         [f"<r\\={p}>{tp}</r>\\r\\n" 
-                         for p, tp in zip(parts, trans_parts)]
+                         for p, tp in zip(parts_for_text, trans_parts_for_text)]
                     ).rstrip('\\r\\n')
+                    
+                    # 如果原文末尾有\n，在双语文本末尾也添加\n
+                    if has_trailing_newline:
+                        bilingual_text += '\\n'
                     # 匹配 message text= 属性
                     pattern = re.compile(
                         r'(message text=)%s' % re.escape(orig),
@@ -295,7 +354,7 @@ def process_bilingual():
                         changes_count += 1
                 except Exception as e:
                     print(f"处理文件 {csv_file} 中ID为 {row_id} 的条目时出错: {e}")
-                    error_rows.append([csv_file, row_id, "处理错误", processed_orig, trans, str(e)])
+                    error_rows.append([csv_file, row_id, "处理错误", orig_copy, trans_copy, str(e)])
                     has_errors = True
                     file_has_errors = True
                     continue # 跳过处理此条目
@@ -467,6 +526,15 @@ def process_chinese_only():
                     if new_content != content:
                         content = new_content
                         changes_count += 1
+                elif row_id == '0000000000000' and name == '__title__':
+                    # 处理title类型 (id=0000000000000, name=__title__) - 根据id和name字段判断
+                    pattern = re.compile(
+                        r'(title title=)%s' % re.escape(orig),
+                    )
+                    new_content = pattern.sub(lambda m: f'{m.group(1)}{trans}', content)
+                    if new_content != content:
+                        content = new_content
+                        changes_count += 1
                 elif row_id == '0000000000000' and name == '__narration__':
                     # 处理narration类型 (id=0000000000000, name=__narration__) - 根据id和name字段判断
                     pattern = re.compile(
@@ -476,8 +544,8 @@ def process_chinese_only():
                     if new_content != content:
                         content = new_content
                         changes_count += 1
-                elif row_id == '0000000000000' and name != '__narration__':
-                    # 处理message类型 (id=0000000000000, name!=__narration__) - 直接替换
+                elif row_id == '0000000000000' and name != '__narration__' and name != '__title__':
+                    # 处理message类型 (id=0000000000000, name!=__narration__ and name!=__title__) - 直接替换
                     pattern = re.compile(
                         r'(message text=)%s' % re.escape(orig),
                     )

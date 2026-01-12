@@ -73,12 +73,24 @@ def preprocess_txt_files():
                     })
                     continue
             
+            # 匹配title类型
+            title_match = re.match(r'\[\[?title title=(.*?)(?:\]|\s+\w+=)', line)
+            if title_match:
+                text_content = title_match.group(1).strip('"')
+                extracted_data.append({
+                    'id': '0000000000000',
+                    'name': '__title__',
+                    'text': text_content,
+                    'trans': ''
+                })
+                continue
+            
             # 匹配narration类型
             narration_match = re.match(r'\[\[?narration text=(.*?)(?:\]|\s+\w+=)', line)
             if narration_match:
                 text_content = narration_match.group(1).strip('"')
                 extracted_data.append({
-                    'id': 'narration',
+                    'id': '0000000000000',
                     'name': '__narration__',
                     'text': text_content,
                     'trans': ''
