@@ -27,11 +27,12 @@ def clean_html_tags(text):
     if text is None:
         return text
     # 匹配 <r\=...>内容</r> 只取内容
-    text = re.sub(r'<r\\=[^>]+>(.*?)</r>', r'\1', text)
+    text = re.sub(r'<r\\=[^>]+>([\s\S]*?)(?:</r>|/r>)', r'\1', text)
     # 再处理 <em\=...>内容</em>
-    text = re.sub(r'<em\\=[^>]*>(.*?)</em>', r'\1', text)
+    text = re.sub(r'<em\\=[^>]*>([\s\S]*?)</em>', r'\1', text)
     # 处理 <em>内容</em>
-    text = re.sub(r'<em>(.*?)</em>', r'\1', text)
+    text = re.sub(r'<em>([\s\S]*?)</em>', r'\1', text)
+    text = re.sub(r'<([A-Za-z][A-Za-z0-9_:-]*)(?:\\=[^>]*)?>([\s\S]*?)</\1>', r'\2', text)
     return text
 
 def remove_r_tags_inplace(csv_path):

@@ -6,8 +6,9 @@ from collections import defaultdict
 # --- 正则表达式 ---
 
 # === 用于双语文件 (BILINGUAL) ===
+MESSAGE_NAME_RE = re.compile(r"(?:^|\s)name=\s*([^\s\]]+)")
 BILINGUAL_R_TAG_EXTRACTOR_RE = re.compile(r"<r\\=[\s\S]*?>([\s\S]*?)(?:</r>|/r>)")
-BILINGUAL_MESSAGE_RE = re.compile(r"\[message text=([\s\S]+?) name=[\s\S]*? clip=.*?\"_startTime\":([\d\.]+).*?\]")
+BILINGUAL_MESSAGE_RE = re.compile(r"\[message text=(?P<text>[\s\S]+?)(?=\s+(?:name|hide|isInner|se|clip)=|\])(?P<attrs>[\s\S]*?)\s+clip=.*?\"_startTime\":(?P<start>[\d\.]+).*?\]")
 BILINGUAL_NARRATION_RE = re.compile(r"\[narration text=([\s\S]+?) (?:hide=true )?clip=.*?\"_startTime\":([\d\.]+).*?\]")
 BILINGUAL_CHOICE_GROUP_RE = re.compile(r"\[choicegroup choices=\[(.*?)\] clip=.*?\"_startTime\":([\d\.]+).*?\]")
 CHOICE_TEXT_EXTRACTOR_RE = re.compile(r"choice text=([\s\S]*?)(?=\s+\w+=|\] choices=\[choice text=|\])")
@@ -20,6 +21,7 @@ ORIGINAL_MESSAGE_RE = re.compile(
     r"[\s\S]*?" # 匹配 name 和 clip 之间的任何其他属性 (非贪婪)
     r"\s*clip=.*?\"_startTime\":([\d\.]+).*?\]"
 )
+ORIGINAL_MESSAGE_RE = re.compile(r"\[message text=(?P<text>[\s\S]+?)(?=\s+(?:name|hide|isInner|se|clip)=|\])(?P<attrs>[\s\S]*?)\s+clip=.*?\"_startTime\":(?P<start>[\d\.]+).*?\]")
 ORIGINAL_NARRATION_RE = re.compile(r"\[narration text=([\s\S]+?) (?:hide=true )?clip=.*?\"_startTime\":([\d\.]+).*?\]")
 ORIGINAL_CHOICE_GROUP_RE = re.compile(r"\[choicegroup choices=\[(.*?)\] clip=.*?\"_startTime\":([\d\.]+).*?\]")
 ORIGINAL_CHOICE_TEXT_EXTRACTOR_RE = re.compile(r"choice text=([\s\S]*?)(?=\s+\w+=|\] choices=\[choice text=|\])")
@@ -50,9 +52,10 @@ def parse_original_japanese_file_content(filepath):
 
                 match_msg = ORIGINAL_MESSAGE_RE.match(line_orig)
                 if match_msg:
-                    raw_jp_text_content = match_msg.group(1)
-                    jp_name = match_msg.group(2).strip()
-                    start_time = match_msg.group(3)
+                    raw_jp_text_content = match_msg.group("text")
+                    name_match = MESSAGE_NAME_RE.search(match_msg.group("attrs"))
+                    jp_name = name_match.group(1).strip() if name_match else ""
+                    start_time = match_msg.group("start")
                     processed_jp_text = get_raw_japanese_text(raw_jp_text_content) # \n 已保留
                     parsed_data["messages"][start_time].append({"text": processed_jp_text, "name": jp_name})
                     continue
@@ -148,6 +151,8 @@ def process_game_scripts_main(bilingual_root_dir, original_root_dir, output_dire
                     if match_bi_msg:
                         bilingual_text_attr_for_cn = match_bi_msg.group(1) # text=的原始内容
                         msg_start_time = match_bi_msg.group(2)
+                        bilingual_text_attr_for_cn = match_bi_msg.group("text")
+                        msg_start_time = match_bi_msg.group("start")
 
                         # 检查原始文本中是否存在<r\=...>标签
                         if BILINGUAL_R_TAG_EXTRACTOR_RE.search(bilingual_text_attr_for_cn):

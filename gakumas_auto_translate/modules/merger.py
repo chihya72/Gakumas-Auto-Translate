@@ -45,6 +45,7 @@ def merge_translations():
     
     # 步骤3: 修复使用原始未替换的text字段
     csv_orig_dir = "./todo/untranslated/csv_orig"  # 使用csv_orig目录
+    translation_mode = get_translation_mode()
     
     print("\n正在恢复原始text字段，保留翻译结果...")
     # 使用sorted确保顺序一致
@@ -89,9 +90,18 @@ def merge_translations():
             
         # 将原始text字段复制到翻译后的文件中
         changes = 0
+        cleaned_changes = 0
         for i, (orig_row, trans_row) in enumerate(zip(orig_rows, trans_rows)):
-            if orig_row['id'] == trans_row['id'] and orig_row['text'] != trans_row['text']:
-                trans_row['text'] = orig_row['text']  # 使用原始text字段
+            if orig_row['id'] == trans_row['id']:
+                restored_text = orig_row['text']  # 使用原始text字段
+                if translation_mode == "bilingual":
+                    cleaned_text = clean_html_tags(restored_text)
+                    if cleaned_text != restored_text:
+                        cleaned_changes += 1
+                    restored_text = cleaned_text
+                if restored_text == trans_row['text']:
+                    continue
+                trans_row['text'] = restored_text
                 changes += 1
                 
         # 重新添加译者行（如果存在）
@@ -113,9 +123,10 @@ def merge_translations():
             print(f"已更新文件 {filename}: 恢复了 {changes} 处原始text字段")
         else:
             print(f"文件 {filename} 无需更新text字段")
+        if translation_mode == "bilingual" and cleaned_changes > 0:
+            print(f"已清理文件 {filename}: 移除了 {cleaned_changes} 处text字段中的尖括号标签")
     
     # 步骤4: 根据翻译模式执行不同的合并逻辑
-    translation_mode = get_translation_mode()
     if translation_mode == "bilingual":
         print("\n正在执行中日双语合并模式...")
         process_bilingual()
@@ -180,9 +191,25 @@ def process_bilingual():
             error_rows.append([csv_file, "N/A", "文件读取错误", "", "", str(e)])
             has_errors = True
             continue # 跳过此文件
+
+        raw_items = []
+        raw_csv_path = os.path.join("./todo/untranslated/csv_orig", csv_file)
+        if os.path.exists(raw_csv_path):
+            try:
+                with open(raw_csv_path, 'r', encoding='utf-8') as f:
+                    reader = csv.DictReader(f)
+                    raw_items = list(reader)
+            except Exception as e:
+                print(f"警告: 读取原始CSV文件 {csv_file} 时出错，将使用清理后的text字段进行匹配: {e}")
+
+        for i, row in enumerate(replace_items):
+            if i < len(raw_items) and row.get('id') == raw_items[i].get('id'):
+                row['_match_text'] = raw_items[i].get('text', '')
+            else:
+                row['_match_text'] = row.get('text', '')
             
         # 按原文长度降序排序
-        replace_items.sort(key=lambda x: len(x.get('text', '') or ""), reverse=True)
+        replace_items.sort(key=lambda x: len(x.get('_match_text', '') or x.get('text', '') or ""), reverse=True)
         
         # 读取原始文本内容
         try:
@@ -203,6 +230,7 @@ def process_bilingual():
             orig = row.get('text', '')
             trans = row.get('trans', '')
             name = row.get('name', '')
+            match_orig = row.get('_match_text') or orig
             
             # 立即保存副本用于错误报告
             orig_copy = orig
@@ -251,7 +279,7 @@ def process_bilingual():
                 try:
                     # 修正正则表达式，不再匹配引号
                     pattern = re.compile(
-                        r'(choice text=)%s' % re.escape(orig),
+                        r'(choice text=)%s' % re.escape(match_orig),
                     )
                     # 修正替换逻辑，不再处理引号
                     new_content = pattern.sub(lambda m: f'{m.group(1)}{trans}', content)
@@ -269,7 +297,7 @@ def process_bilingual():
                 try:
                     # 匹配 title title= 属性，直接替换为翻译
                     pattern = re.compile(
-                        r'(title title=)%s' % re.escape(orig),
+                        r'(title title=)%s' % re.escape(match_orig),
                     )
                     new_content = pattern.sub(lambda m: f'{m.group(1)}{trans}', content)
                     
@@ -289,7 +317,7 @@ def process_bilingual():
                 try:
                     # 匹配 narration text= 属性，直接替换为翻译
                     pattern = re.compile(
-                        r'(narration text=)%s' % re.escape(orig),
+                        r'(narration text=)%s' % re.escape(match_orig),
                     )
                     new_content = pattern.sub(lambda m: f'{m.group(1)}{trans}', content)
                     
@@ -344,7 +372,7 @@ def process_bilingual():
                         bilingual_text += '\\n'
                     # 匹配 message text= 属性
                     pattern = re.compile(
-                        r'(message text=)%s' % re.escape(orig),
+                        r'(message text=)%s' % re.escape(match_orig),
                     )
                     new_content = pattern.sub(lambda m: f'{m.group(1)}{bilingual_text}', content)
                     

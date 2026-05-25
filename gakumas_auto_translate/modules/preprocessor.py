@@ -10,6 +10,9 @@ import shutil
 from pathlib import Path
 from .utils import remove_r_tags_inplace, clean_html_tags
 
+MESSAGE_TEXT_RE = re.compile(r'\[message text=(.*?)(?=\s+(?:name|hide|isInner|se|clip)=|\])')
+MESSAGE_NAME_RE = re.compile(r'(?:^|\s)name=\s*([^\s\]]+)')
+
 def preprocess_txt_files():
     """预处理待翻译的txt文件（包含message、choice和narration）"""
     source_dir = "./todo/untranslated/txt"
@@ -48,10 +51,11 @@ def preprocess_txt_files():
         for line in file_content:
             line = line.strip()
               # 匹配message类型
-            message_match = re.match(r'\[message text=(.*?)\s*name=([^\s]+)', line)
+            message_match = MESSAGE_TEXT_RE.match(line)
             if message_match:
                 text_content = message_match.group(1).strip('"')
-                name_content = message_match.group(2).split()[0].strip('"')
+                name_match = MESSAGE_NAME_RE.search(line)
+                name_content = name_match.group(1).strip('"') if name_match else ''
                 extracted_data.append({
                     'id': '0000000000000',
                     'name': name_content,
