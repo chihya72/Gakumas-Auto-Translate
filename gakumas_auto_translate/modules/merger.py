@@ -90,15 +90,9 @@ def merge_translations():
             
         # 将原始text字段复制到翻译后的文件中
         changes = 0
-        cleaned_changes = 0
         for i, (orig_row, trans_row) in enumerate(zip(orig_rows, trans_rows)):
             if orig_row['id'] == trans_row['id']:
                 restored_text = orig_row['text']  # 使用原始text字段
-                if translation_mode == "bilingual":
-                    cleaned_text = clean_html_tags(restored_text)
-                    if cleaned_text != restored_text:
-                        cleaned_changes += 1
-                    restored_text = cleaned_text
                 if restored_text == trans_row['text']:
                     continue
                 trans_row['text'] = restored_text
@@ -123,8 +117,6 @@ def merge_translations():
             print(f"已更新文件 {filename}: 恢复了 {changes} 处原始text字段")
         else:
             print(f"文件 {filename} 无需更新text字段")
-        if translation_mode == "bilingual" and cleaned_changes > 0:
-            print(f"已清理文件 {filename}: 移除了 {cleaned_changes} 处text字段中的尖括号标签")
     
     # 步骤4: 根据翻译模式执行不同的合并逻辑
     if translation_mode == "bilingual":
