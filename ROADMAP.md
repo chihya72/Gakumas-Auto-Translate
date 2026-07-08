@@ -28,7 +28,7 @@
 | `Gakumas-Auto-Translate` | 已有 | 自动流水线控制仓 | Campus 检测、AI 机翻、Actions、机翻底稿 `csv_data/` |
 | `gakumas-translation-work` | **新建 1 个** | 协作工作仓 | 工作 CSV、原始 `raw/` txt、Issues 认领台账 |
 | `gakumas-viewer` fork | 已有 | 翻译前端 | 工作台、认领、翻译/校对、纯中文 TXT 下载 |
-| `gakuen-adapted-translation-data-pm` | 已有 | 成品 CSV 仓 | 最终入库目标，更新 `data/` + `index.json` |
+| `gakuen-adapted-translation-data-pm` | 已有 | 合规成品 CSV 仓 | 只接收本地菜单4等校验通过、符合 `\n` 换行数量要求的 CSV |
 | `DreamGallery/Campus-adv-txts` | 外部已有 | Campus 原始 txt 权威源 | 只读上游 |
 | 下游 chinosk6/GakumasTranslationData | 已有 | 合成发布 | 不变 |
 
@@ -69,7 +69,7 @@ viewer 工作台：成员认领 → 编辑 → 直推工作仓 → 两轨完成 
 | # | 任务 | 状态 | 说明 |
 |---|---|---|---|
 | A.1 | 建/确认 `gakumas-translation-work` | ✅ | 唯一新仓库；存工作 CSV、raw txt、Issues |
-| A.2 | 打开 Issues + 建阶段标签 | ✅ | `待翻译/翻译中/待校对/校对中/完成/已入库` |
+| A.2 | 打开 Issues + 建阶段标签 | ✅ | `待翻译/翻译中/待校对/校对中/完成`；网页端不再打“已入库” |
 | A.3 | 成员加为 collaborator | ⬜ 🔒 | 你在 GitHub 邀请 |
 | A.4 | 主仓配置 Actions secrets | ✅ | 已写入 `PIPELINE_PAT`、`OPENAI_API_KEY`、`OPENAI_BASE_URL`、`MODEL`、`MAX_TOKENS` |
 
@@ -98,7 +98,7 @@ viewer 工作台：成员认领 → 编辑 → 直推工作仓 → 两轨完成 
 | C.2 | 翻译/校对双轨认领 | ✅ | issue body 存 `tr/pr` 状态 |
 | C.3 | 编辑器直推工作仓 | ✅ | collaborator 直接保存，不走 PR |
 | C.4 | 校对未解锁时只读 | ✅ | 翻译完成后才能校对 |
-| C.5 | 两轨完成自动 closed | ✅ | 进入“已完成待入库” |
+| C.5 | 两轨完成自动 closed | ✅ | 进入“已完成”下载区，不在网页端入库 |
 | C.6 | 浏览器加载工作台 | ✅ | 本地 viewer 已启动，工作台页面可打开 |
 | C.7 | 浏览器登录工作台 | ⬜ 🔒 | GitHub OAuth 停在登录页，需要你手动登录一次；后端权限已用 `gh` 验证 |
 
@@ -124,13 +124,13 @@ viewer 工作台：成员认领 → 编辑 → 直推工作仓 → 两轨完成 
 | E.5 | 保留菜单4的 `\n` 一致性检查 | ✅ | 原文/译文末尾 `\n`、行数检查必须保留 |
 | E.6 | 双语 TXT 下游合成/游戏内回归 | ⬜ | 复用现有下游，不重建 |
 
-### F. 最终入库 🔄
+### F. 成品入库边界 ✅
 | # | 任务 | 状态 | 说明 |
 |---|---|---|---|
 | F.0 | 创建 viewer fork | ✅ | `chihya72/gakumas-viewer` 已创建，权限 ADMIN |
-| F.1 | 网页端一键入库 data-pm | ✅ | CSV 推成品仓同路径 |
-| F.2 | 更新成品仓 `index.json` | ✅ | viewer 已做 |
-| F.3 | issue 打“已入库”标签 | ✅ | 防重复入库 |
+| F.1 | 移除网页端一键入库 data-pm | ✅ | 已完成文件只允许下载 CSV/纯中文 TXT |
+| F.2 | data-pm 入库留在本地校验后 | ✅ | 只收符合 `\n` 换行数量要求的 CSV |
+| F.3 | 已完成区显示翻译/校对人 | ✅ | 工作台显示个人 ID，不显示 GitHub ID |
 
 ### G. 公网部署 ⬜
 | # | 任务 | 状态 | 说明 |
@@ -138,7 +138,7 @@ viewer 工作台：成员认领 → 编辑 → 直推工作仓 → 两轨完成 
 | G.1 | 自建 GitHub OAuth App | ⬜ 🔒 | 你申请 Client ID/Secret |
 | G.2 | viewer `.env` 换生产 OAuth/仓库配置 | ⬜ | 填你的值 |
 | G.3 | GitHub Pages 部署 workflow | ⬜ | 我写 |
-| G.4 | 全流程公网回归 | ⬜ | 登录、认领、保存、完成、纯中文下载、入库 |
+| G.4 | 全流程公网回归 | ⬜ | 登录、认领、保存、完成、纯中文下载 |
 
 ---
 
@@ -164,8 +164,8 @@ viewer 工作台：成员认领 → 编辑 → 直推工作仓 → 两轨完成 
 | 1.4 | 成员加为工作仓库 collaborator | ⬜ 🔒 | 你在 GitHub 邀请 |
 | 1.5 | run.py 检测新剧情时调 seed_work_repo（--push --issues） | ⬜ | 扩 checker.py，接现有菜单 |
 | 1.6 | 收割脚本 harvest_work_repo.py + run.py 菜单7 | ✅ | 两轨完成的closed issue→下载CSV到todo/translated/csv→打"已入库"标签→接菜单4/5 |
-| 1.7 | **网页端一键入库**（工作台"已完成待入库"区） | ✅ B11 | CSV推data-pm同路径+更新index.json+issue标"已入库" |
-| 1.8 | **网页端下载成品CSV/纯中文TXT** | 🔄 B12 | 流程已通，但当前纯中文 TXT 会丢标签，必须改成保标签生成 |
+| 1.7 | ~~网页端一键入库~~ | ✅ 废弃 | data-pm 只能存放符合 `\n` 换行数量要求的 CSV，网页端不入库 |
+| 1.8 | **网页端下载成品CSV/纯中文TXT** | ✅ B14 | 已完成区只提供下载，纯中文 TXT 保标签生成 |
 | 1.9 | **上游接 campus 权威源** | ✅ B13 | 原始txt源=DreamGallery/Campus-adv-txts/Resource；viewer fetchRawTxt campus优先+工作仓库raw/兜底 |
 | 1.10 | **自动流水线 Action** | ✅ | `.github/workflows/campus-to-work.yml` 定时/手动跑 Campus→AI→工作台 |
 
@@ -204,7 +204,7 @@ viewer 工作台：成员认领 → 编辑 → 直推工作仓 → 两轨完成 
 - B 中日双语游戏线：继续本地完成；本地菜单4的去标签逻辑和 `\n` 检查保留，不搬网页。
 
 直推模型（关键设计）：「保存」= 把当前译文写回它被读取的那个 github 路径（同 owner/repo/branch/path），
-用 Contents API PUT（`updateContent`），不 fork/不建分支/不走 PR。repo 无关，对 data-pm / 未来工作仓库通用。
+用 Contents API PUT（`updateContent`），不 fork/不建分支/不走 PR。直推只用于工作仓；`data-pm` 不从网页端入库。
 成员只需对目标仓库有写权限（collaborator）。并发靠 Issue self-assign 软锁（一文件一人）。
 
 改动文件（都在 D:/GIT/gakumas-viewer）：
