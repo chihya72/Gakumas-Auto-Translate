@@ -13,7 +13,7 @@ from .utils import remove_r_tags_inplace, clean_html_tags
 MESSAGE_TEXT_RE = re.compile(r'\[message text=(.*?)(?=\s+(?:name|hide|isInner|se|clip)=|\])')
 MESSAGE_NAME_RE = re.compile(r'(?:^|\s)name=\s*([^\s\]]+)')
 
-def preprocess_txt_files():
+def preprocess_txt_files(preserve_html=False):
     """预处理待翻译的txt文件（包含message、choice和narration）"""
     source_dir = "./todo/untranslated/txt"
     output_dir = "./todo/untranslated/csv_orig"
@@ -125,14 +125,22 @@ def preprocess_txt_files():
 
             # （1）先复制到csv_dict
             dict_output_path = output_path.replace("csv_orig", "csv_dict")
+            Path(dict_output_path).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(output_path, dict_output_path)
             print(f"已复制到词典替换目录: {dict_output_path}")
 
-            # （2）然后在dict文件中清理标签
-            remove_r_tags_inplace(dict_output_path)
-            print(f"已去除<\\r=></r>标签: {dict_output_path}")
+            if preserve_html:
+                print(f"保留HTML标签: {dict_output_path}")
+            else:
+                # （2）然后在dict文件中清理标签
+                remove_r_tags_inplace(dict_output_path)
+                print(f"已去除<\\r=></r>标签: {dict_output_path}")
         else:
             print(f"跳过文件 {filename}，未找到可翻译内容")
+
+    if preserve_html:
+        print("\n保标签预处理完成，跳过字典替换和HTML清理")
+        return True
     
     # 预处理完成后，立即进行字典替换
     print("\n正在执行字典替换...")

@@ -16,6 +16,7 @@ def print_menu():
     print("4. 合并翻译文件")
     print("5. 完成并清理临时文件")
     print("6. 切换翻译模式")
+    print("7. 收割在线协作完成稿（工作仓库 → todo/translated/csv）")
     print("9. 配置并检测所需目录")
     print("0. 退出程序")
 
@@ -57,6 +58,10 @@ def main():
         elif choice == '6':
             # 切换翻译模式
             config.toggle_translation_mode()
+        elif choice == '7':
+            # 收割在线协作完成稿（两轨完成的 issue → 下载 CSV → 打"已入库"标签）
+            import subprocess, sys
+            subprocess.run([sys.executable, "tools/harvest_work_repo.py"])
         elif choice == '9':
             # 配置目录并确保 config.json 已创建
             dump_txt_path = config.configure_directories()
