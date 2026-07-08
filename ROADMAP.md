@@ -191,7 +191,7 @@ gakumas-translation-work/
 
 | # | 编写步骤 | 涉及 |
 |---|---|---|
-| J.1 | seed/Action 输出改为 `raw_txt/` + `ai_csv/`；issue body 记录 `raw_path` / `ai_path` / `translated_path` / `proofread_path` | ✅ 本地真实跑通 `adv_cidol-hume-3-018_03`，工作仓 issue #17，标签校验 0 错 |
+| J.1 | seed/Action 输出改为 `raw_txt/` + `ai_csv/`；issue body 记录 `raw_path` / `ai_path` / `translated_path` / `proofread_path` | ✅ 本地真实跑通 `adv_cidol-hume-3-018_03`，工作仓 issue #17，标签校验 0 错；Actions run `28949682890` no-op 回归成功 |
 | J.2 | 翻译完成：保存当前 CSV，并覆盖写入 `translated_csv/` 对应文件；然后更新 issue 翻译轨状态 | ✅ viewer `TranslationPanel.vue` `workflow.ts` |
 | J.3 | 校对完成：保存当前 CSV，并覆盖写入 `proofread_csv/` 对应文件；然后更新 issue 校对轨状态并 close | ✅ viewer |
 | J.4 | 工作台翻译栏加 [AI机翻CSV] 下载按钮，来源 `ai_csv/` | ✅ viewer `Workbench.vue` |
