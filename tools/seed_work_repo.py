@@ -30,7 +30,15 @@ INIT_STAGE = "待翻译"
 
 def run(cmd, **kw):
     print("  $", " ".join(cmd))
-    return subprocess.run(cmd, check=True, text=True, capture_output=True, **kw)
+    try:
+        return subprocess.run(cmd, check=True, text=True, capture_output=True, **kw)
+    except subprocess.CalledProcessError as e:
+        # 失败时把子进程输出打出来，否则 CI 上只有 traceback 无法定位
+        if e.stdout:
+            print("  [stdout]", e.stdout.strip()[-2000:])
+        if e.stderr:
+            print("  [stderr]", e.stderr.strip()[-2000:])
+        raise
 
 
 def story_of(filename):

@@ -51,6 +51,12 @@ jobs:
           test -n "$GH_TOKEN" || (echo "Missing secret PIPELINE_PAT" && exit 1)
           # 让 git 复用 gh 的 token 凭据——否则 seed 对工作仓库的 git push 会 128 认证失败
           gh auth setup-git
+          # 机翻前先自检 PAT 对工作仓库有写权限，避免翻完 push 不上白烧 API 费
+          PUSH_OK=$(gh api repos/chihya72/gakumas-translation-work --jq '.permissions.push' 2>/dev/null || echo false)
+          if [ "$PUSH_OK" != "true" ]; then
+            echo "::error::PIPELINE_PAT 对 gakumas-translation-work 没有写权限（permissions.push=$PUSH_OK）。请检查 PAT 的仓库范围/scope。"
+            exit 1
+          fi
           test -n "$OPENAI_API_KEY" || (echo "Missing secret OPENAI_API_KEY" && exit 1)
           test -n "$OPENAI_BASE_URL" || (echo "Missing secret OPENAI_BASE_URL" && exit 1)
           test -n "$MODEL" || (echo "Missing secret MODEL" && exit 1)
