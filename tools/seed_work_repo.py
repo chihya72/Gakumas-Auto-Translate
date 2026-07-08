@@ -125,13 +125,19 @@ def push_files(repo, plan, raw_dir=""):
             json.dump(index, f, ensure_ascii=False, indent=2)
         # 空仓库首推：强制切到 main 分支并设 upstream
         run(["git", "-C", tmp, "switch", "-C", "main"])
+        run(["git", "-C", tmp, "config", "user.name", "github-actions[bot]"])
+        run(["git", "-C", tmp, "config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com"])
         run(["git", "-C", tmp, "add", "-A"])
         # 无改动时 commit 会失败，容忍
         try:
             run(["git", "-C", tmp, "commit", "-m", f"seed {len(plan)} stories"])
             run(["git", "-C", tmp, "push", "-u", "origin", "main"])
         except subprocess.CalledProcessError as e:
-            print("   (push)", (e.stderr or e.stdout or "").strip())
+            msg = (e.stderr or e.stdout or "").strip()
+            if "nothing to commit" in msg or "no changes added" in msg:
+                print("   (push)", msg)
+            else:
+                raise
 
 
 def make_issues(repo, plan):

@@ -88,6 +88,7 @@ viewer 工作台：成员认领 → 编辑 → 直推工作仓 → 两轨完成 
 | B.7 | 机翻 CSV + raw txt 推工作仓 | ✅ | `seed_work_repo.py --raw-dir` |
 | B.8 | 自动创建认领 issue | ✅ | 一话一个 issue，含 `<!-- path: ... -->` |
 | B.9 | 真实小批量端到端验证 | ✅ | `adv_cidol-hume-3-018_01` 已进工作仓 issue #13；35 行标签校验 0 错 |
+| B.10 | Actions 临时 clone git 身份 | ✅ | 修复远端 seed commit 缺 author；非无改动失败不再吞掉 |
 
 ### C. 网页工作台 🔄
 | # | 任务 | 状态 | 说明 |
