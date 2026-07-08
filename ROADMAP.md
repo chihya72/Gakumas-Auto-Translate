@@ -26,7 +26,7 @@
 | 仓库 | 是否新建 | 定位 | 在本方案中的角色 |
 |---|---:|---|---|
 | `Gakumas-Auto-Translate` | 已有 | 自动流水线控制仓 | Campus 检测、AI 机翻、Actions、机翻底稿 `csv_data/` |
-| `gakumas-translation-work` | **新建 1 个** | 协作工作仓 | 工作 CSV、原始 `raw/` txt、Issues 认领台账 |
+| `gakumas-translation-work` | **新建 1 个** | 协作工作仓 | 阶段目录产物 + Issues 认领台账 |
 | `gakumas-viewer` fork | 已有 | 翻译前端 | 工作台、认领、翻译/校对、纯中文 TXT 下载 |
 | `gakuen-adapted-translation-data-pm` | 已有 | 合规成品 CSV 仓 | 只接收本地菜单4等校验通过、符合 `\n` 换行数量要求的 CSV |
 | `DreamGallery/Campus-adv-txts` | 外部已有 | Campus 原始 txt 权威源 | 只读上游 |
@@ -45,16 +45,18 @@ GitHub Actions: auto_campus_pipeline.py
         │
         ▼
 gakumas-translation-work
-        ├─ raw/*.txt                               # 原始 txt 兜底源
-        ├─ data/adv/.../*.csv                      # 工作 CSV
+        ├─ raw_txt/*.txt                           # 原始 txt
+        ├─ ai_csv/.../*.csv                        # AI 机翻 CSV
+        ├─ translated_csv/.../*.csv                # 人工翻译完成 CSV
+        ├─ proofread_csv/.../*.csv                 # 人工校对完成 CSV
         └─ Issues                                  # 翻译/校对双轨认领
                 │
                 ▼
-viewer 工作台：成员认领 → 编辑 → 直推工作仓 → 两轨完成 closed
+viewer 工作台：成员认领 → 编辑 → 完成时自动覆盖下一阶段目录 → 两轨完成 closed
                 │
                 ├─ A 纯中文录屏线：全在线
                 │     Campus/raw txt → 保标签预处理 CSV → AI机翻 CSV → 人工翻译/校对 CSV
-                │     最终只生成录屏用纯中文 TXT；所有 CSV 阶段和最终 TXT 都必须保留 HTML 标签
+                │     最终录屏用纯中文 TXT 每次实时生成，不落库；所有 CSV 阶段和最终 TXT 都必须保留 HTML 标签
                 │
                 └─ B 中日双语游戏线：本地
                       走本地菜单4(双语模式)生成合规 TXT
@@ -85,7 +87,7 @@ viewer 工作台：成员认领 → 编辑 → 直推工作仓 → 两轨完成 
 | B.4a | 预处理目录自创建 | ✅ | 线上独立跑不再依赖菜单1先建 `csv_dict` |
 | B.5 | CI 自动跑 `GakumasPreTranslation` | ✅ | AI 输入前用 `GAT_TAG_n` 占位符保护 HTML 标签 |
 | B.6 | 机翻 CSV 写入本仓 `csv_data/` | ✅ | 真实 API 小样通过：占位符还原后 `<r>/<em>` 标签一致 |
-| B.7 | 机翻 CSV + raw txt 推工作仓 | ✅ | `seed_work_repo.py --raw-dir` |
+| B.7 | 机翻 CSV + raw txt 推工作仓 | 🔄 | 目标改为 `raw_txt/` + `ai_csv/`，旧 `raw/` + `data/` 需迁移 |
 | B.8 | 自动创建认领 issue | ✅ | 一话一个 issue，含 `<!-- path: ... -->` |
 | B.9 | 真实小批量端到端验证 | ✅ | `adv_cidol-hume-3-018_01` 已进工作仓 issue #13；35 行标签校验 0 错 |
 | B.10 | Actions 临时 clone git 身份 | ✅ | 修复远端 seed commit 缺 author；非无改动失败不再吞掉 |
@@ -97,8 +99,9 @@ viewer 工作台：成员认领 → 编辑 → 直推工作仓 → 两轨完成 
 | C.1 | 工作台首页 | ✅ | 读取工作仓 Issues |
 | C.2 | 翻译/校对双轨认领 | ✅ | issue body 存 `tr/pr` 状态 |
 | C.3 | 编辑器直推工作仓 | ✅ | collaborator 直接保存，不走 PR |
-| C.4 | 校对未解锁时只读 | ✅ | 翻译完成后才能校对 |
+| C.4 | 未认领/未解锁只读 | ✅ | 未认领的人不能编辑；即使直接打开 URL 也不能提交 |
 | C.5 | 两轨完成自动 closed | ✅ | 进入“已完成”下载区，不在网页端入库 |
+| C.8 | 各阶段下载按钮 | ✅ | 翻译栏下载 AI CSV，校对栏下载翻译 CSV，成品栏下载校对 CSV + 实时纯中文 TXT |
 | C.6 | 浏览器加载工作台 | ✅ | 本地 viewer 已启动，工作台页面可打开 |
 | C.7 | 浏览器登录工作台 | ⬜ 🔒 | GitHub OAuth 停在登录页，需要你手动登录一次；后端权限已用 `gh` 验证 |
 
@@ -108,10 +111,10 @@ viewer 工作台：成员认领 → 编辑 → 直推工作仓 → 两轨完成 
 | D.1 | 网页端下载成品 CSV | ✅ | 从工作仓当前版本下载 |
 | D.2 | 线上保标签预处理 CSV | ✅ | 取代本地第2步；不生成剥标签的 `csv_dict` 作为纯中文线输入 |
 | D.3 | AI机翻 CSV 保标签 | ✅ | 中间 CSV，不是 TXT；真实 API 小样验证保留标签 |
-| D.4 | 人工翻译 CSV 保标签 | ⬜ | 中间 CSV，不是 TXT；人工编辑不能删标签 |
-| D.5 | 人工校对 CSV 保标签 | ⬜ | 中间 CSV，不是 TXT；校对后仍保留全部标签 |
-| D.6 | 网页端生成最终录屏 TXT | ✅ | 只生成这一份 TXT；生成时保留并校验 HTML 标签 |
-| D.7 | HTML 标签一致性校验 | ✅ | AI输出、网页保存/完成、TXT下载/生成都会拦截标签不一致 |
+| D.4 | 人工翻译 CSV 保标签 | ✅ | 翻译完成时自动覆盖 `translated_csv/` 对应文件 |
+| D.5 | 人工校对 CSV 保标签 | ✅ | 校对完成时自动覆盖 `proofread_csv/` 对应文件 |
+| D.6 | 网页端生成最终录屏 TXT | ✅ | 不存 `final_txt/`；每次用 `raw_txt/` + `proofread_csv/` 实时生成 |
+| D.7 | HTML 标签一致性校验 | 🔄 | AI输出、网页保存/完成、TXT下载/生成都会拦截；提示需细化到行号和缺失/多余标签 |
 | D.8 | 批量下载纯中文 TXT | ⬜ | 单个下载先修正确，再做批量 |
 
 ### E. 中日双语游戏线 🔄
@@ -139,6 +142,98 @@ viewer 工作台：成员认领 → 编辑 → 直推工作仓 → 两轨完成 
 | G.2 | viewer `.env` 换生产 OAuth/仓库配置 | ⬜ | 填你的值 |
 | G.3 | GitHub Pages 部署 workflow | ⬜ | 我写 |
 | G.4 | 全流程公网回归 | ⬜ | 登录、认领、保存、完成、纯中文下载 |
+
+---
+
+## 四点五、工作台二期（2026-07-08 新定稿，已开工）
+
+> 用户层原则：**目录表示产物阶段，issue 表示认领状态，commit/hash 只做后台历史追溯**。
+> 普通用户不需要理解 commit/hash，也不需要手动搬文件。
+> 重做时直接覆盖 `translated_csv/` 或 `proofread_csv/` 对应文件；旧版本只从 git 历史里找。
+
+### 工作仓库目录定稿
+
+```text
+gakumas-translation-work/
+  raw_txt/            # 原始 txt
+  ai_csv/             # AI 机翻 CSV，Action 自动创建/覆盖
+  translated_csv/     # 人工翻译完成 CSV，点“翻译完成”自动创建/覆盖
+  proofread_csv/      # 人工校对完成 CSV，点“校对完成”自动创建/覆盖
+```
+
+不建 `final_txt/`。录屏用纯中文 TXT 每次由网页实时用 `raw_txt/` + `proofread_csv/` 生成。
+
+### H. 历史已完成页 ⬜
+> 顶栏新页面 `/history`：所有两轨完成(closed)的文件，默认按 Actions 播种时间倒序；
+> 每行显示 文件名 · 译者 · 校对 · [校对CSV下载] [纯中文TXT下载]。
+
+| # | 编写步骤 | 涉及 |
+|---|---|---|
+| H.1 | `listIssues` 补分页（现在 per_page=100 会截断，>100 个必丢数据，前置修复） | ✅ viewer `auth.ts` |
+| H.2 | 下载 CSV / 纯中文TXT 函数从 Workbench 抽到共用 helper | viewer `workflow.ts` |
+| H.3 | 新建 `History.vue`：拉 closed issues → docFromIssue → 表格渲染（译者/校对用个人ID显示） | viewer 新文件 |
+| H.4 | 路由 `/history` + 顶栏入口“已完成”；工作台首页的“已完成”区精简为最近几条+跳转链接 | viewer `main.ts` `App.vue` `Workbench.vue` |
+| H.5 | 排序：默认 issue `created_at` 倒序；后续加完成时间/文件名切换 | H.3 内 |
+
+### I. 存档功能 ⬜
+> 始终没人接单、或接单后长期未完成的文件，可「存档」移出活跃列表；存档页记录当时进度；可恢复。
+
+| # | 编写步骤 | 涉及 |
+|---|---|---|
+| I.1 | 工作仓库建“已存档”标签 | 🔒 一条 gh 命令 |
+| I.2 | 工作台每行加「存档」按钮（带确认）：加标签 + close，双轨标记原样保留 | viewer `Workbench.vue` `workflow.ts` |
+| I.3 | 新建 `/archive` 存档页：列“已存档”issue，显示存档时的双轨进度 | viewer 新文件 + 路由 |
+| I.4 | 存档页加「恢复」按钮：reopen + 去标签 → 回到工作台原状态 | I.3 内 |
+| I.5 | 历史页(H)与存档页互不混入：H 过滤掉“已存档”标签 | H.3 联动 |
+
+### J. 阶段目录与下载按钮 ⬜
+> 每个状态都给对应下载入口；完成动作自动写下一阶段目录，不需要人工搬运。
+
+| # | 编写步骤 | 涉及 |
+|---|---|---|
+| J.1 | seed/Action 输出改为 `raw_txt/` + `ai_csv/`；issue body 记录 `raw_path` / `ai_path` / `translated_path` / `proofread_path` | 🔄 主仓脚本已改，待避开现有脏改动后提交/跑 Actions 回归 |
+| J.2 | 翻译完成：保存当前 CSV，并覆盖写入 `translated_csv/` 对应文件；然后更新 issue 翻译轨状态 | ✅ viewer `TranslationPanel.vue` `workflow.ts` |
+| J.3 | 校对完成：保存当前 CSV，并覆盖写入 `proofread_csv/` 对应文件；然后更新 issue 校对轨状态并 close | ✅ viewer |
+| J.4 | 工作台翻译栏加 [AI机翻CSV] 下载按钮，来源 `ai_csv/` | ✅ viewer `Workbench.vue` |
+| J.5 | 工作台校对栏加 [翻译CSV] 下载按钮，来源 `translated_csv/`；翻译未完成时置灰 | ✅ viewer `Workbench.vue` |
+| J.6 | 已完成栏加 [校对CSV] [纯中文TXT] 下载按钮；TXT 实时生成，不落库 | ✅ viewer `Workbench.vue` |
+| J.7 | 重做规则：再次完成翻译/校对时覆盖 `translated_csv/` / `proofread_csv/` 同名文件；不保留并列旧文件 | ✅ viewer `workflow.ts` |
+
+### K. 个人ID绑定 ⬜
+> 组员随时自助设置个人ID；工作台显示个人ID，不显示 GitHub ID。后续权限管理也依赖它。
+
+**存放**：工作仓库根 `users.json`：`{ "<github登录名>": { "name": "<个人ID>", "role": "member|pm" } }`。
+
+| # | 编写步骤 | 涉及 |
+|---|---|---|
+| K.1 | 工作仓库建初始 `users.json`（现有成员+你，role 先都填好） | 🔒 或我代跑 |
+| K.2 | `fetchUsers()` + `updateMyName()`：读改写自己条目，sha 冲突重试复用 updateContent | viewer `workflow.ts` |
+| K.3 | 设置入口：顶栏头像下拉加“个人设置”，输入个人ID→保存→即时生效 | viewer `PushHeader.vue` 或新组件 |
+| K.4 | `displayUser` 改读远程 users.json，删硬编码字典 | viewer 全局替换 |
+
+### L. 权限与 PM 管理 ⬜
+> PM 可以：主动上传新文档、修改任意文件的译者/校对、存档/恢复，方便整理归档。
+
+| # | 编写步骤 | 涉及 |
+|---|---|---|
+| L.1 | 依赖 K：users.json 的 role 字段 + `isPm` 判定 | viewer `workflow.ts` |
+| L.2 | 未认领/非本人编辑限制：页面只读；即使直接打开 URL，也不能提交 | viewer `TranslationPanel.vue` |
+| L.3 | PM 管理操作（仅 PM 可见）：改派/清空 译者·校对、直接置某轨状态、存档/恢复任意文件 | viewer `Workbench.vue` 等 |
+| L.4 | PM 上传新文档 v1：网页上传 CSV → 推 `ai_csv/` 或指定阶段目录 + 自动开认领 issue | viewer 新组件 |
+| L.5 | 批量选择+批量存档（依赖 I） | 后续迭代 |
+
+### 暂不做 / 明确不考虑
+
+| 项目 | 结论 |
+|---|---|
+| final_txt 落库 | 不做；纯中文 TXT 每次实时生成 |
+| 在线 `\n` 数量检查 | 不做；这个工作流只给录屏组 |
+| 线上入 `data-pm` | 不做；`data-pm` 仍只收本地合规检查后的 CSV |
+| 手动搬阶段文件 | 不做；由完成按钮自动写入阶段目录 |
+| 并列保存旧版 CSV | 不做；重做直接覆盖，旧版看 commit 历史 |
+| 直接 GitHub 手改导致状态错乱 | 暂不考虑 |
+
+**建议实施顺序**：H.1 分页（前置缺陷）→ J（阶段目录与下载按钮）→ K（个人ID/权限基础）→ H（历史页）→ I（存档）→ L（PM 管理）。
 
 ---
 
@@ -196,6 +291,10 @@ viewer 工作台：成员认领 → 编辑 → 直推工作仓 → 两轨完成 
 ---
 
 ## 六、当前位置
+
+**（2026-07-08 追加）工作台二期 H–L 已按阶段目录方案重写（见"四点五"），已开始 H.1/J。
+实施顺序：H.1 分页前置修复 → J 阶段目录与下载按钮 → K 个人ID/权限基础 → H 历史页 → I 存档 → L PM 管理。**
+
 
 **目标已落地到可验收版本：全自动上游 + 网页工作台 + 两套最终产物。新仓库只保留 `gakumas-translation-work` 一个。**
 

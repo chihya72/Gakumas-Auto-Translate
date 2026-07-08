@@ -41,9 +41,13 @@ def story_of(filename):
 
 
 def repo_path_of(filename):
-    # adv_cidol-amao-3-000_01.csv -> data/adv/cidol-amao-3-000/01.csv
+    # adv_cidol-amao-3-000_01.csv -> ai_csv/adv/cidol-amao-3-000/01.csv
     base = filename[:-4]
-    return "data/" + "/".join(base.split("_")) + ".csv"
+    return "ai_csv/" + "/".join(base.split("_")) + ".csv"
+
+
+def stage_path(rpath, stage):
+    return stage + "/" + "/".join(rpath.split("/")[1:])
 
 
 def collect(stories, prefix, limit):
@@ -106,20 +110,20 @@ def push_files(repo, plan, raw_dir=""):
                 if raw_dir:
                     raw_name = filename.replace(".csv", ".txt")
                     raw_src = os.path.join(raw_dir, raw_name)
-                    raw_dst = os.path.join(tmp, "raw", raw_name)
+                    raw_dst = os.path.join(tmp, "raw_txt", raw_name)
                     if os.path.exists(raw_src) and not os.path.exists(raw_dst):
                         os.makedirs(os.path.dirname(raw_dst), exist_ok=True)
                         with open(raw_src, "rb") as s, open(raw_dst, "wb") as d:
                             d.write(s.read())
         # 重建 index.json: 原始txt名 -> 相对csv路径
         index = {}
-        data_root = os.path.join(tmp, "data")
+        data_root = os.path.join(tmp, "ai_csv")
         for sub, _, files in os.walk(data_root):
             for f in files:
                 if f.endswith(".csv"):
                     rel = os.path.relpath(os.path.join(sub, f), tmp).replace("\\", "/")
-                    # data/adv/cidol-amao-3-000/01.csv -> adv_cidol-amao-3-000_01.txt
-                    origin = "_".join(rel[len("data/"):-len(".csv")].split("/")) + ".txt"
+                    # ai_csv/adv/cidol-amao-3-000/01.csv -> adv_cidol-amao-3-000_01.txt
+                    origin = "_".join(rel[len("ai_csv/"):-len(".csv")].split("/")) + ".txt"
                     index[origin] = "./" + rel
         with open(os.path.join(tmp, "index.json"), "w", encoding="utf-8") as f:
             json.dump(index, f, ensure_ascii=False, indent=2)
@@ -153,6 +157,10 @@ def make_issues(repo, plan):
             body = (
                 f"文件 `{title}`\n\n"
                 f"<!-- path: {rpath} -->\n"
+                f"<!-- raw_path: raw_txt/{title}.txt -->\n"
+                f"<!-- ai_path: {rpath} -->\n"
+                f"<!-- translated_path: {stage_path(rpath, 'translated_csv')} -->\n"
+                f"<!-- proofread_path: {stage_path(rpath, 'proofread_csv')} -->\n"
                 f"<!-- tr:: -->\n<!-- pr:: -->"
             )
             run(["gh", "issue", "create", "-R", repo, "--title", title,
