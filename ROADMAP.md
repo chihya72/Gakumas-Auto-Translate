@@ -133,7 +133,7 @@ viewer 工作台：成员认领 → 编辑 → 完成时自动覆盖下一阶段
 | F.0 | 创建 viewer fork | ✅ | `chihya72/gakumas-viewer` 已创建，权限 ADMIN |
 | F.1 | 移除网页端一键入库 data-pm | ✅ | 已完成文件只允许下载 CSV/纯中文 TXT |
 | F.2 | data-pm 入库留在本地校验后 | ✅ | 只收符合 `\n` 换行数量要求的 CSV |
-| F.3 | 已完成区显示翻译/校对人 | ✅ | 工作台显示个人 ID，不显示 GitHub ID |
+| F.3 | 已完成历史显示翻译/校对人 | ✅ | 历史页显示个人 ID，不显示 GitHub ID |
 
 ### G. 公网部署 ⬜
 | # | 任务 | 状态 | 说明 |
@@ -172,7 +172,7 @@ gakumas-translation-work/
 | H.1 | `listIssues` 补分页（现在 per_page=100 会截断，>100 个必丢数据，前置修复） | ✅ viewer `auth.ts` |
 | H.2 | 下载 CSV / 纯中文TXT 功能接入历史页 | ✅ 直接复用现有 workflow 调用，暂不抽 helper |
 | H.3 | 新建 `History.vue`：拉 closed issues → docFromIssue → 表格渲染（译者/校对用个人ID显示） | ✅ viewer 新文件 |
-| H.4 | 路由 `/history` + 顶栏入口“已完成” | ✅ viewer `main.ts` `App.vue` |
+| H.4 | 路由 `/history` + 顶栏入口“已完成”；主页不再展示已完成区 | ✅ viewer `main.ts` `App.vue` `Workbench.vue` |
 | H.5 | 排序：默认按 issue number 倒序 | ✅ 后续需要再加完成时间/文件名切换 |
 
 ### I. 存档功能 ✅
@@ -194,8 +194,8 @@ gakumas-translation-work/
 | J.1 | seed/Action 输出改为 `raw_txt/` + `ai_csv/`；issue body 记录 `raw_path` / `ai_path` / `translated_path` / `proofread_path` | ✅ 本地真实跑通 `adv_cidol-hume-3-018_03`，工作仓 issue #17，标签校验 0 错；Actions run `28949682890` no-op 回归成功 |
 | J.2 | 翻译完成：保存当前 CSV，并覆盖写入 `translated_csv/` 对应文件；然后更新 issue 翻译轨状态 | ✅ viewer `TranslationPanel.vue` `workflow.ts` |
 | J.3 | 校对完成：保存当前 CSV，并覆盖写入 `proofread_csv/` 对应文件；然后更新 issue 校对轨状态并 close | ✅ viewer |
-| J.4 | 工作台翻译栏加 [AI机翻CSV] 下载按钮，来源 `ai_csv/` | ✅ viewer `Workbench.vue` |
-| J.5 | 工作台校对栏加 [翻译CSV] 下载按钮，来源 `translated_csv/`；翻译未完成时置灰 | ✅ viewer `Workbench.vue` |
+| J.4 | 工作台翻译栏加 [下载AI机翻CSV] 按钮，来源 `ai_csv/` | ✅ viewer `Workbench.vue` |
+| J.5 | 工作台校对栏加 [下载人工翻译CSV] 按钮，来源 `translated_csv/`；翻译未完成时置灰 | ✅ viewer `Workbench.vue` |
 | J.6 | 已完成栏加 [校对CSV] [纯中文TXT] 下载按钮；TXT 实时生成，不落库 | ✅ viewer `Workbench.vue` |
 | J.7 | 重做规则：再次完成翻译/校对时覆盖 `translated_csv/` / `proofread_csv/` 同名文件；不保留并列旧文件 | ✅ viewer `workflow.ts` |
 
@@ -260,7 +260,7 @@ gakumas-translation-work/
 | 1.5 | run.py 检测新剧情时调 seed_work_repo（--push --issues） | ⬜ | 扩 checker.py，接现有菜单 |
 | 1.6 | 收割脚本 harvest_work_repo.py + run.py 菜单7 | ✅ | 两轨完成的closed issue→下载CSV到todo/translated/csv→打"已入库"标签→接菜单4/5 |
 | 1.7 | ~~网页端一键入库~~ | ✅ 废弃 | data-pm 只能存放符合 `\n` 换行数量要求的 CSV，网页端不入库 |
-| 1.8 | **网页端下载成品CSV/纯中文TXT** | ✅ B14 | 已完成区只提供下载，纯中文 TXT 保标签生成 |
+| 1.8 | **网页端下载成品CSV/纯中文TXT** | ✅ B16 | 已完成下载统一放历史页，主页只显示活跃任务 |
 | 1.9 | **上游接 campus 权威源** | ✅ B13 | 原始txt源=DreamGallery/Campus-adv-txts/Resource；viewer fetchRawTxt campus优先+工作仓库raw/兜底 |
 | 1.10 | **自动流水线 Action** | ✅ | `.github/workflows/campus-to-work.yml` 定时/手动跑 Campus→AI→工作台 |
 
