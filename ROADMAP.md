@@ -89,6 +89,7 @@ viewer 工作台：成员认领 → 编辑 → 直推工作仓 → 两轨完成 
 | B.8 | 自动创建认领 issue | ✅ | 一话一个 issue，含 `<!-- path: ... -->` |
 | B.9 | 真实小批量端到端验证 | ✅ | `adv_cidol-hume-3-018_01` 已进工作仓 issue #13；35 行标签校验 0 错 |
 | B.10 | Actions 临时 clone git 身份 | ✅ | 修复远端 seed commit 缺 author；非无改动失败不再吞掉 |
+| B.11 | 远端 Actions 验收 | ✅ | run `28914392643` 成功；`01.csv/02.csv` 和 raw txt 已在工作仓，两个 AI CSV 标签校验 0 错 |
 
 ### C. 网页工作台 🔄
 | # | 任务 | 状态 | 说明 |
@@ -176,11 +177,13 @@ viewer 工作台：成员认领 → 编辑 → 直推工作仓 → 两轨完成 
 | 2.3 | 认领=self-assign+换标签；完成本阶段=换标签+取消assign | ✅ | listIssues/updateIssue；vue-tsc 通过；待实测 |
 | 2.4 | 改 PushPanel：collaborator 直推，跳过建 PR | ✅ | 新 DirectPush.vue「保存=写回源路径」；vue-tsc 通过；待实测 |
 
-### 阶段 3：标签保全（em/r 标签坑） ⬜
+### 阶段 3：标签保全（em/r 标签坑） ✅
 | # | 任务 | 状态 | 说明 |
 |---|---|---|---|
-| 3.1 | 明确三套产物对标签的要求 | ⬜ | 录屏txt要标签/插件不要/待翻译现状已剥 |
-| 3.2 | 校对阶段补标签方案（保底稿含标签 or 校对后回填） | ⬜ | 见 memory em-r-tag-preservation |
+| 3.1 | 明确两套产物对标签的要求 | ✅ | 纯中文录屏线线上全程保标签；中日双语游戏线本地去标签 |
+| 3.2 | AI 机翻 CSV 标签保护 | ✅ | `GAT_TAG_n` 占位符保护标签，输出后还原并校验 |
+| 3.3 | 人工编辑/校对标签保护 | ✅ | viewer 保存/完成前校验 `text/trans` 标签序列 |
+| 3.4 | 最终纯中文 TXT 标签保护 | ✅ | 生成时先校验 CSV 行，再校验最终 TXT 与 raw txt 标签序列 |
 
 ### 阶段 4：公网部署（GitHub Pages） ⬜
 | # | 任务 | 状态 | 说明 |
@@ -194,11 +197,11 @@ viewer 工作台：成员认领 → 编辑 → 直推工作仓 → 两轨完成 
 
 ## 六、当前位置
 
-**目标已收敛：全自动上游 + 网页工作台 + 两套最终产物。新仓库只保留 `gakumas-translation-work` 一个。**
+**目标已落地到可验收版本：全自动上游 + 网页工作台 + 两套最终产物。新仓库只保留 `gakumas-translation-work` 一个。**
 
 两条产物线当前状态：
-- A 纯中文录屏线：必须全在线完成；中间产物是保标签 CSV（AI机翻/人工翻译/人工校对），最终只生成一份录屏 TXT。当前线上预处理/生成仍会丢标签，必须重做为保标签路径。
-- B 中日双语游戏线：继续本地完成；本地菜单4的去标签逻辑和 `\n` 检查必须保留，不搬网页。
+- A 纯中文录屏线：已在线打通。Campus 新文本可自动入临时队列，保标签预处理，AI 机翻，写入 `csv_data/`，推送到工作仓 `data/` + `raw/`，创建认领 issue。AI机翻 CSV、人工翻译 CSV、人工校对 CSV、最终录屏 TXT 都走标签一致性校验。
+- B 中日双语游戏线：继续本地完成；本地菜单4的去标签逻辑和 `\n` 检查保留，不搬网页。
 
 直推模型（关键设计）：「保存」= 把当前译文写回它被读取的那个 github 路径（同 owner/repo/branch/path），
 用 Contents API PUT（`updateContent`），不 fork/不建分支/不走 PR。repo 无关，对 data-pm / 未来工作仓库通用。
@@ -212,8 +215,13 @@ viewer 工作台：成员认领 → 编辑 → 直推工作仓 → 两轨完成 
 - `src/components/translate/push/PushPanel.vue` 换用 DirectPush
 - 遗留 dead：BranchController/CommitCard/PullController/PushSteps 已无引用，可删
 
-下一步：
-1. 你配置 `PIPELINE_PAT`、`OPENAI_API_KEY`、`OPENAI_BASE_URL`、`MODEL`
-2. 手动触发 `Campus to Workbench` workflow 跑一批小 `limit`
-3. 修 A 线：线上第2/3步不能再用剥标签 CSV；AI机翻/人工翻译/人工校对 CSV 必须保留原始全部 HTML 标签
-4. 抽样跑 B 线：同一 CSV 用本地菜单4双语模式生成游戏用 TXT，确认去标签和 `\n` 检查仍生效
+已完成验收：
+1. GitHub secrets 已配置：`PIPELINE_PAT`、`OPENAI_API_KEY`、`OPENAI_BASE_URL`、`MODEL`、`MAX_TOKENS`
+2. 本地真实流水线跑通 `adv_cidol-hume-3-018_01`，工作仓 issue #13，标签校验 0 错
+3. 远端 GitHub Actions run `28914392643` 成功，生成 `adv_cidol-hume-3-018_02`，工作仓 issue #14，标签校验 0 错
+4. viewer fork `chihya72/gakumas-viewer` 已推送 `gkmas` 分支；本地页面可打开，保存/完成/TXT生成都会拦截标签不一致
+
+剩余必须你本人操作：
+1. 在网页工作台完成一次 GitHub OAuth 登录
+2. 邀请协作者加入 `gakumas-translation-work`
+3. 申请生产 GitHub OAuth App 后，我再补 GitHub Pages 部署与公网回归
