@@ -163,28 +163,28 @@ gakumas-translation-work/
 
 不建 `final_txt/`。录屏用纯中文 TXT 每次由网页实时用 `raw_txt/` + `proofread_csv/` 生成。
 
-### H. 历史已完成页 ⬜
+### H. 历史已完成页 ✅
 > 顶栏新页面 `/history`：所有两轨完成(closed)的文件，默认按 Actions 播种时间倒序；
 > 每行显示 文件名 · 译者 · 校对 · [校对CSV下载] [纯中文TXT下载]。
 
 | # | 编写步骤 | 涉及 |
 |---|---|---|
 | H.1 | `listIssues` 补分页（现在 per_page=100 会截断，>100 个必丢数据，前置修复） | ✅ viewer `auth.ts` |
-| H.2 | 下载 CSV / 纯中文TXT 函数从 Workbench 抽到共用 helper | viewer `workflow.ts` |
-| H.3 | 新建 `History.vue`：拉 closed issues → docFromIssue → 表格渲染（译者/校对用个人ID显示） | viewer 新文件 |
-| H.4 | 路由 `/history` + 顶栏入口“已完成”；工作台首页的“已完成”区精简为最近几条+跳转链接 | viewer `main.ts` `App.vue` `Workbench.vue` |
-| H.5 | 排序：默认 issue `created_at` 倒序；后续加完成时间/文件名切换 | H.3 内 |
+| H.2 | 下载 CSV / 纯中文TXT 功能接入历史页 | ✅ 直接复用现有 workflow 调用，暂不抽 helper |
+| H.3 | 新建 `History.vue`：拉 closed issues → docFromIssue → 表格渲染（译者/校对用个人ID显示） | ✅ viewer 新文件 |
+| H.4 | 路由 `/history` + 顶栏入口“已完成” | ✅ viewer `main.ts` `App.vue` |
+| H.5 | 排序：默认按 issue number 倒序 | ✅ 后续需要再加完成时间/文件名切换 |
 
-### I. 存档功能 ⬜
+### I. 存档功能 ✅
 > 始终没人接单、或接单后长期未完成的文件，可「存档」移出活跃列表；存档页记录当时进度；可恢复。
 
 | # | 编写步骤 | 涉及 |
 |---|---|---|
-| I.1 | 工作仓库建“已存档”标签 | 🔒 一条 gh 命令 |
-| I.2 | 工作台每行加「存档」按钮（带确认）：加标签 + close，双轨标记原样保留 | viewer `Workbench.vue` `workflow.ts` |
-| I.3 | 新建 `/archive` 存档页：列“已存档”issue，显示存档时的双轨进度 | viewer 新文件 + 路由 |
-| I.4 | 存档页加「恢复」按钮：reopen + 去标签 → 回到工作台原状态 | I.3 内 |
-| I.5 | 历史页(H)与存档页互不混入：H 过滤掉“已存档”标签 | H.3 联动 |
+| I.1 | 工作仓库建“已存档”标签 | ✅ 已创建 |
+| I.2 | 工作台每行加「存档」按钮（带确认）：加标签 + close，双轨标记原样保留 | ✅ viewer `Workbench.vue` `workflow.ts` |
+| I.3 | 新建 `/archive` 存档页：列“已存档”issue，显示存档时的双轨进度 | ✅ viewer 新文件 + 路由 |
+| I.4 | 存档页加「恢复」按钮：reopen + 去标签 → 回到工作台原状态 | ✅ |
+| I.5 | 历史页(H)与存档页互不混入：H 过滤掉“已存档”标签 | ✅ |
 
 ### J. 阶段目录与下载按钮 ⬜
 > 每个状态都给对应下载入口；完成动作自动写下一阶段目录，不需要人工搬运。
@@ -292,8 +292,7 @@ gakumas-translation-work/
 
 ## 六、当前位置
 
-**（2026-07-08 追加）工作台二期 H–L 已按阶段目录方案重写（见"四点五"），H.1/J 已完成本地与工作仓真实回归。
-实施顺序：H.1 分页前置修复 → J 阶段目录与下载按钮 → K 个人ID/权限基础 → H 历史页 → I 存档 → L PM 管理。**
+**（2026-07-08 追加）工作台二期 H–L 已按阶段目录方案重写（见"四点五"）。H.1/J/H/I 已完成；剩余 K 个人ID/权限基础、L PM 管理。**
 
 
 **目标已落地到可验收版本：全自动上游 + 网页工作台 + 两套最终产物。新仓库只保留 `gakumas-translation-work` 一个。**
