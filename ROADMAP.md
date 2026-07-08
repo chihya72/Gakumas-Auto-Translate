@@ -186,7 +186,7 @@ gakumas-translation-work/
 | I.4 | 存档页加「恢复」按钮：reopen + 去标签 → 回到工作台原状态 | ✅ |
 | I.5 | 历史页(H)与存档页互不混入：H 过滤掉“已存档”标签 | ✅ |
 
-### J. 阶段目录与下载按钮 ⬜
+### J. 阶段目录与下载按钮 ✅
 > 每个状态都给对应下载入口；完成动作自动写下一阶段目录，不需要人工搬运。
 
 | # | 编写步骤 | 涉及 |
@@ -199,28 +199,28 @@ gakumas-translation-work/
 | J.6 | 已完成栏加 [校对CSV] [纯中文TXT] 下载按钮；TXT 实时生成，不落库 | ✅ viewer `Workbench.vue` |
 | J.7 | 重做规则：再次完成翻译/校对时覆盖 `translated_csv/` / `proofread_csv/` 同名文件；不保留并列旧文件 | ✅ viewer `workflow.ts` |
 
-### K. 个人ID绑定 ⬜
-> 组员随时自助设置个人ID；工作台显示个人ID，不显示 GitHub ID。后续权限管理也依赖它。
+### K. 个人ID绑定 🔄
+> 工作台显示个人ID，不显示 GitHub ID。当前先由管理页维护；后续再做组员自助改名入口。
 
-**存放**：工作仓库根 `users.json`：`{ "<github登录名>": { "name": "<个人ID>", "role": "member|pm" } }`。
-
-| # | 编写步骤 | 涉及 |
-|---|---|---|
-| K.1 | 工作仓库建初始 `users.json`（现有成员+你，role 先都填好） | 🔒 或我代跑 |
-| K.2 | `fetchUsers()` + `updateMyName()`：读改写自己条目，sha 冲突重试复用 updateContent | viewer `workflow.ts` |
-| K.3 | 设置入口：顶栏头像下拉加“个人设置”，输入个人ID→保存→即时生效 | viewer `PushHeader.vue` 或新组件 |
-| K.4 | `displayUser` 改读远程 users.json，删硬编码字典 | viewer 全局替换 |
-
-### L. 权限与 PM 管理 ⬜
-> PM 可以：主动上传新文档、修改任意文件的译者/校对、存档/恢复，方便整理归档。
+**存放**：工作仓库根 `users.json`：`{ "<github登录名>": { "name": "<个人ID>", "role": "user|admin" } }`。
 
 | # | 编写步骤 | 涉及 |
 |---|---|---|
-| L.1 | 依赖 K：users.json 的 role 字段 + `isPm` 判定 | viewer `workflow.ts` |
-| L.2 | 未认领/非本人编辑限制：页面只读；即使直接打开 URL，也不能提交 | viewer `TranslationPanel.vue` |
-| L.3 | PM 管理操作（仅 PM 可见）：改派/清空 译者·校对、直接置某轨状态、存档/恢复任意文件 | viewer `Workbench.vue` 等 |
-| L.4 | PM 上传新文档 v1：网页上传 CSV → 推 `ai_csv/` 或指定阶段目录 + 自动开认领 issue | viewer 新组件 |
-| L.5 | 批量选择+批量存档（依赖 I） | 后续迭代 |
+| K.1 | 工作仓库建初始 `users.json`（`chihya72 -> pm/admin`） | ✅ 已创建 |
+| K.2 | `loadUsers()` + `saveUsers()`：读写远端 `users.json`，sha 冲突重试复用 updateContent | ✅ viewer `users.ts` |
+| K.3 | 设置入口：组员自助修改自己的个人ID | ⬜ 后续；当前由管理页维护 |
+| K.4 | `displayUser` 改读远程 users.json，删硬编码字典 | ✅ 工作台/历史/存档/管理页加载 |
+
+### L. 权限与管理 🔄
+> 管理员可以：维护用户个人ID字典、修改任意文件的译者/校对、改变文件状态、存档/恢复。普通用户只做认领、翻译、校对。
+
+| # | 编写步骤 | 涉及 |
+|---|---|---|
+| L.1 | 依赖 K：users.json 的 role 字段 + `isAdmin` 判定 | ✅ viewer `users.ts` |
+| L.2 | 未认领/非本人编辑限制：页面只读；即使直接打开 URL，也不能提交 | ✅ viewer `TranslationPanel.vue` |
+| L.3 | 管理页 `/admin`：维护个人ID字典、改译者/校对者、直接置翻译/校对状态、存档/恢复任意文件 | ✅ viewer `Admin.vue` |
+| L.4 | 管理员上传新文档 v1：网页上传 CSV → 推 `ai_csv/` 或指定阶段目录 + 自动开认领 issue | ⬜ 后续 |
+| L.5 | 批量选择+批量存档（依赖 I） | ⬜ 后续迭代 |
 
 ### 暂不做 / 明确不考虑
 
@@ -233,7 +233,7 @@ gakumas-translation-work/
 | 并列保存旧版 CSV | 不做；重做直接覆盖，旧版看 commit 历史 |
 | 直接 GitHub 手改导致状态错乱 | 暂不考虑 |
 
-**建议实施顺序**：H.1 分页（前置缺陷）→ J（阶段目录与下载按钮）→ K（个人ID/权限基础）→ H（历史页）→ I（存档）→ L（PM 管理）。
+**当前实施顺序**：H.1 分页（前置缺陷）→ J（阶段目录与下载按钮）→ H（历史页）→ I（存档）→ K（个人ID/权限基础）→ L（权限与管理）。剩余重点：K.3 自助个人ID、L.4 管理员上传、L.5 批量存档。
 
 ---
 
