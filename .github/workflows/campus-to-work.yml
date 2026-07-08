@@ -4,18 +4,23 @@ on:
   workflow_dispatch:
     inputs:
       prefix:
-        description: "Only import txt files with this prefix"
+        description: "逗号分隔前缀白名单；留空=已翻译范围默认白名单"
         required: false
-        default: "adv_"
+        default: ""
       limit:
-        description: "Max files to import; 0 means all"
+        description: "单次最多处理文件数；留空=50，0=不限"
         required: false
-        default: "0"
+        default: ""
   schedule:
     - cron: "17 */6 * * *"
 
 permissions:
   contents: write
+
+# 防止定时与手动触发重叠运行（重复开 issue / push 冲突）
+concurrency:
+  group: campus-pipeline
+  cancel-in-progress: false
 
 jobs:
   campus-to-workbench:
@@ -49,9 +54,11 @@ jobs:
           test -n "$MODEL" || (echo "Missing secret MODEL" && exit 1)
           PREFIX="${{ github.event.inputs.prefix }}"
           LIMIT="${{ github.event.inputs.limit }}"
+          # 默认白名单=已翻译范围前缀，排除 pstep/pweek/gasha/produce_lesson 等系统文本积压
+          DEFAULT_PREFIX="adv_cidol,adv_csprt,adv_dear,adv_event,adv_live,adv_pevent,adv_pgrowth,adv_presult,adv_produce-refresh,adv_pstory,adv_startup,adv_tower,adv_tutorial,adv_unit"
           python tools/auto_campus_pipeline.py \
-            --prefix "${PREFIX:-adv_}" \
-            --limit "${LIMIT:-0}"
+            --prefix "${PREFIX:-$DEFAULT_PREFIX}" \
+            --limit "${LIMIT:-50}"
 
       - name: Commit pretranslated CSV
         run: |

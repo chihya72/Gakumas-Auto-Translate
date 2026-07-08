@@ -87,7 +87,7 @@ viewer 工作台：成员认领 → 编辑 → 完成时自动覆盖下一阶段
 | B.4a | 预处理目录自创建 | ✅ | 线上独立跑不再依赖菜单1先建 `csv_dict` |
 | B.5 | CI 自动跑 `GakumasPreTranslation` | ✅ | AI 输入前用 `GAT_TAG_n` 占位符保护 HTML 标签 |
 | B.6 | 机翻 CSV 写入本仓 `csv_data/` | ✅ | 真实 API 小样通过：占位符还原后 `<r>/<em>` 标签一致 |
-| B.7 | 机翻 CSV + raw txt 推工作仓 | 🔄 | 目标改为 `raw_txt/` + `ai_csv/`，旧 `raw/` + `data/` 需迁移 |
+| B.7 | 机翻 CSV + raw txt 推工作仓 | ✅ | 新任务写入 `raw_txt/` + `ai_csv/`；旧 `raw/` + `data/` 兼容读取 |
 | B.8 | 自动创建认领 issue | ✅ | 一话一个 issue，含 `<!-- path: ... -->` |
 | B.9 | 真实小批量端到端验证 | ✅ | `adv_cidol-hume-3-018_01` 已进工作仓 issue #13；35 行标签校验 0 错 |
 | B.10 | Actions 临时 clone git 身份 | ✅ | 修复远端 seed commit 缺 author；非无改动失败不再吞掉 |
@@ -191,7 +191,7 @@ gakumas-translation-work/
 
 | # | 编写步骤 | 涉及 |
 |---|---|---|
-| J.1 | seed/Action 输出改为 `raw_txt/` + `ai_csv/`；issue body 记录 `raw_path` / `ai_path` / `translated_path` / `proofread_path` | 🔄 主仓脚本已改，待避开现有脏改动后提交/跑 Actions 回归 |
+| J.1 | seed/Action 输出改为 `raw_txt/` + `ai_csv/`；issue body 记录 `raw_path` / `ai_path` / `translated_path` / `proofread_path` | ✅ 本地真实跑通 `adv_cidol-hume-3-018_03`，工作仓 issue #17，标签校验 0 错 |
 | J.2 | 翻译完成：保存当前 CSV，并覆盖写入 `translated_csv/` 对应文件；然后更新 issue 翻译轨状态 | ✅ viewer `TranslationPanel.vue` `workflow.ts` |
 | J.3 | 校对完成：保存当前 CSV，并覆盖写入 `proofread_csv/` 对应文件；然后更新 issue 校对轨状态并 close | ✅ viewer |
 | J.4 | 工作台翻译栏加 [AI机翻CSV] 下载按钮，来源 `ai_csv/` | ✅ viewer `Workbench.vue` |
@@ -292,7 +292,7 @@ gakumas-translation-work/
 
 ## 六、当前位置
 
-**（2026-07-08 追加）工作台二期 H–L 已按阶段目录方案重写（见"四点五"），已开始 H.1/J。
+**（2026-07-08 追加）工作台二期 H–L 已按阶段目录方案重写（见"四点五"），H.1/J 已完成本地与工作仓真实回归。
 实施顺序：H.1 分页前置修复 → J 阶段目录与下载按钮 → K 个人ID/权限基础 → H 历史页 → I 存档 → L PM 管理。**
 
 

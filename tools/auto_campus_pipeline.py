@@ -25,6 +25,8 @@ CAMPUS_DIR = "Resource"
 PRETRANS_REPO = "https://github.com/imas-tools/GakumasPreTranslation.git"
 WORK_REPO = "chihya72/gakumas-translation-work"
 TAG_RE = re.compile(r"</?[A-Za-z][A-Za-z0-9_:-]*(?:\\=[^>]*)?>")
+# 有台词的行特征；全无 = 空剧本（纯演出脚本），与本地菜单2的过滤同构，下载时直接跳过
+TEXT_LINE_RE = re.compile(r"(?:message|narration|choice) text=|title title=")
 ROOT = Path(__file__).resolve().parents[1]
 PRETRANS_DIR = ROOT / "GakumasPreTranslation"
 YARN = shutil.which("yarn.cmd") or shutil.which("yarn") or "yarn"
@@ -60,9 +62,12 @@ def campus_file_list(repo, campus_dir):
 
 
 def flat_txt_from_work_path(path):
-    if not path.startswith("data/") or not path.endswith(".csv"):
+    if not path.endswith(".csv"):
         return ""
-    return "_".join(path[len("data/"):-len(".csv")].split("/")) + ".txt"
+    for prefix in ("ai_csv/", "data/"):
+        if path.startswith(prefix):
+            return "_".join(path[len(prefix):-len(".csv")].split("/")) + ".txt"
+    return ""
 
 
 def known_files(work_repo, branch):
@@ -90,8 +95,9 @@ def known_files(work_repo, branch):
             "--jq", ".tree[].path",
         ]).splitlines()
         known.update(filter(None, (flat_txt_from_work_path(p) for p in paths)))
-        known.update(p[len("raw/"):] for p in paths
-                     if p.startswith("raw/") and p.endswith(".txt"))
+        for raw_prefix in ("raw_txt/", "raw/"):
+            known.update(p[len(raw_prefix):] for p in paths
+                         if p.startswith(raw_prefix) and p.endswith(".txt"))
     except subprocess.CalledProcessError:
         print(f"!! 无法读取工作仓库文件树，将由 seed 脚本处理仓库存在性: {work_repo}")
 
@@ -99,14 +105,22 @@ def known_files(work_repo, branch):
 
 
 def download_txts(files, repo, campus_dir):
+    """下载并过滤空剧本（无台词的纯演出脚本），与本地菜单2的空文件过滤同构。
+    返回有台词的文件列表。空文件每轮会重新检查一遍（几KB开销，无状态残留）。"""
     target = Path("todo/untranslated/txt")
     target.mkdir(parents=True, exist_ok=True)
+    kept = []
     for name in files:
         url = f"https://raw.githubusercontent.com/{repo}/main/{campus_dir}/{name}"
         with urllib.request.urlopen(url) as resp:
             data = resp.read()
+        if not TEXT_LINE_RE.search(data.decode("utf-8", errors="replace")):
+            print(f"跳过(无台词): {name}")
+            continue
         (target / name).write_bytes(data)
+        kept.append(name)
         print(f"下载: {name}")
+    return kept
 
 
 def ensure_pretranslation_repo():
@@ -241,8 +255,10 @@ def tag_signature(text):
 
 def unmask_tags(source_text, translated_text):
     out = translated_text or ""
-    for i, tag in enumerate(tag_signature(source_text)):
-        out = out.replace(f"GAT_TAG_{i}", tag)
+    # 倒序替换：先换 GAT_TAG_10 再换 GAT_TAG_1，避免前缀误命中
+    tags = tag_signature(source_text)
+    for i in range(len(tags) - 1, -1, -1):
+        out = out.replace(f"GAT_TAG_{i}", tags[i])
     return out
 
 
@@ -270,14 +286,17 @@ def main():
     ap.add_argument("--campus-dir", default=CAMPUS_DIR)
     ap.add_argument("--work-repo", default=WORK_REPO)
     ap.add_argument("--work-branch", default="main")
-    ap.add_argument("--prefix", default="adv_")
+    ap.add_argument(
+        "--prefix", default="adv_",
+        help="逗号分隔的前缀白名单，命中任一即处理（如 adv_cidol,adv_csprt）")
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
     remote = campus_file_list(args.campus_repo, args.campus_dir)
     known = known_files(args.work_repo, args.work_branch)
-    new = sorted(f for f in remote if f.startswith(args.prefix) and f not in known)
+    prefixes = tuple(p.strip() for p in args.prefix.split(",") if p.strip())
+    new = sorted(f for f in remote if f.startswith(prefixes) and f not in known)
     if args.limit:
         new = new[:args.limit]
 
@@ -299,7 +318,10 @@ def main():
             ]:
                 clear_dir(p)
 
-            download_txts(new, args.campus_repo, args.campus_dir)
+            kept = download_txts(new, args.campus_repo, args.campus_dir)
+            if not kept:
+                print("新增全部为空剧本，无需机翻")
+                return
             preprocessor.preprocess_txt_files(preserve_html=True)
             ensure_pretranslation_repo()
             ensure_pretranslation_env()
