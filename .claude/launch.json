@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "gakumas-viewer",
+      "runtimeExecutable": "yarn",
+      "runtimeArgs": ["--cwd", "D:/GIT/gakumas-viewer", "dev"],
+      "port": 5173,
+      "autoPort": true
+    }
+  ]
+}

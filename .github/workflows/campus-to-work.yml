@@ -49,6 +49,8 @@ jobs:
       - name: Run pipeline
         run: |
           test -n "$GH_TOKEN" || (echo "Missing secret PIPELINE_PAT" && exit 1)
+          # 让 git 复用 gh 的 token 凭据——否则 seed 对工作仓库的 git push 会 128 认证失败
+          gh auth setup-git
           test -n "$OPENAI_API_KEY" || (echo "Missing secret OPENAI_API_KEY" && exit 1)
           test -n "$OPENAI_BASE_URL" || (echo "Missing secret OPENAI_BASE_URL" && exit 1)
           test -n "$MODEL" || (echo "Missing secret MODEL" && exit 1)
