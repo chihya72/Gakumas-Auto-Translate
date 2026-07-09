@@ -135,13 +135,13 @@ viewer 工作台：成员认领 → 编辑 → 完成时自动覆盖下一阶段
 | F.2 | data-pm 入库留在本地校验后 | ✅ | 只收符合 `\n` 换行数量要求的 CSV |
 | F.3 | 已完成历史显示翻译/校对人 | ✅ | 历史页显示个人 ID，不显示 GitHub ID |
 
-### G. 公网部署 ⬜
+### G. 公网部署 🔄
 | # | 任务 | 状态 | 说明 |
 |---|---|---|---|
-| G.1 | 自建 GitHub OAuth App | ⬜ 🔒 | 你申请 Client ID/Secret |
-| G.2 | viewer `.env` 换生产 OAuth/仓库配置 | ⬜ | 填你的值 |
-| G.3 | GitHub Pages 部署 workflow | ⬜ | 我写 |
-| G.4 | 全流程公网回归 | ⬜ | 登录、认领、保存、完成、纯中文下载 |
+| G.1 | 自建 GitHub OAuth App | ✅ | 回调 https://chihya72.github.io/gakumas-viewer/auth |
+| G.2 | viewer `.env` 换生产 OAuth/仓库配置 | ✅ | HOSTNAME=chihya72.github.io；凭据已打包进 auth chunk（已验证） |
+| G.3 | GitHub Pages 部署 workflow | ✅ | deploy-pages.yml，push gkmas 自动部署；vite base=PAGES_BASE、router base、404.html SPA回退 |
+| G.4 | 全流程公网回归 | 🔄 | 无登录部分✅（首页200/资源base正确/SPA回退内容正确）；登录链路待你在公网页面实测一次 |
 
 ---
 
