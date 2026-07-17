@@ -12,7 +12,8 @@ on:
         required: false
         default: ""
   schedule:
-    - cron: "17 */6 * * *"
+    # UTC 00:17-15:17 = Beijing 08:17-23:17
+    - cron: "17 0-15 * * *"
 
 permissions:
   contents: write
