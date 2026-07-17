@@ -335,6 +335,7 @@ def main():
                 sys.executable, str(ROOT / "tools/seed_work_repo.py"),
                 "--repo", args.work_repo,
                 "--stories", *stories,
+                "--csv-src", str(Path.cwd() / "todo/translated/csv"),
                 "--push", "--issues",
                 "--raw-dir", str(Path.cwd() / "todo/untranslated/txt"),
             ], cwd=str(ROOT))

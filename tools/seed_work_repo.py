@@ -58,9 +58,9 @@ def stage_path(rpath, stage):
     return stage + "/" + "/".join(rpath.split("/")[1:])
 
 
-def collect(stories, prefix, limit):
+def collect(stories, prefix, limit, csv_src=CSV_SRC):
     """返回 {story: [(filename, repo_path), ...]}"""
-    files = sorted(f for f in os.listdir(CSV_SRC) if f.endswith(".csv"))
+    files = sorted(f for f in os.listdir(csv_src) if f.endswith(".csv"))
     result = {}
     for f in files:
         story, _ = story_of(f)
@@ -101,7 +101,7 @@ def ensure_labels(repo):
             print("   (label)", e.stderr.strip())
 
 
-def push_files(repo, plan, raw_dir=""):
+def push_files(repo, plan, raw_dir="", csv_src=CSV_SRC):
     with tempfile.TemporaryDirectory() as tmp:
         run(["gh", "repo", "clone", repo, tmp, "--", "--depth", "1"])
         # 拷文件到工作树
@@ -113,7 +113,7 @@ def push_files(repo, plan, raw_dir=""):
                     print(f"   skip csv (exists): {rpath}")
                 else:
                     os.makedirs(os.path.dirname(dst), exist_ok=True)
-                    with open(os.path.join(CSV_SRC, filename), "rb") as s, open(dst, "wb") as d:
+                    with open(os.path.join(csv_src, filename), "rb") as s, open(dst, "wb") as d:
                         d.write(s.read())
                 if raw_dir:
                     raw_name = filename.replace(".csv", ".txt")
@@ -181,6 +181,7 @@ def main():
     ap.add_argument("--stories", nargs="*", default=[])
     ap.add_argument("--prefix", default="")
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--csv-src", default=CSV_SRC, help="待播种 CSV 目录")
     ap.add_argument("--create-repo", action="store_true")
     ap.add_argument("--push", action="store_true", help="推送文件到工作仓库")
     ap.add_argument("--issues", action="store_true", help="创建认领 Issue")
@@ -190,7 +191,7 @@ def main():
     if not args.stories and not args.prefix:
         ap.error("需指定 --stories 或 --prefix")
 
-    plan = collect(args.stories, args.prefix, args.limit)
+    plan = collect(args.stories, args.prefix, args.limit, args.csv_src)
     if not plan:
         print("没有匹配的剧情"); sys.exit(1)
 
@@ -205,7 +206,7 @@ def main():
     if not ensure_repo(args.repo, args.create_repo):
         sys.exit(1)
     if args.push:
-        push_files(args.repo, plan, args.raw_dir)
+        push_files(args.repo, plan, args.raw_dir, args.csv_src)
     if args.issues:
         ensure_labels(args.repo)
         make_issues(args.repo, plan)
