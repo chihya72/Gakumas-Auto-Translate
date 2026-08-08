@@ -2,8 +2,35 @@
 翻译模块，处理翻译相关功能
 """
 
+import json
 import os
+import re
 import shutil
+
+from .utils import GROUP_MANIFEST, merge_groups
+
+# 同组合并后单次请求最多 250 行，输出约需 10000+ token。
+# .env 里的默认值 4096 会把输出截断——截断的表现就是"漏行"，且每次必漏。
+MIN_MAX_TOKENS = 12288
+
+
+def ensure_max_tokens(env_path):
+    """.env 的 MAX_TOKENS 太小会截断合并请求的输出，就地调高并告知。"""
+    if not os.path.exists(env_path):
+        return
+    with open(env_path, "r", encoding="utf-8") as f:
+        text = f.read()
+    m = re.search(r"^MAX_TOKENS=(\d+)\s*$", text, re.M)
+    current = int(m.group(1)) if m else 0
+    if current >= MIN_MAX_TOKENS:
+        return
+    line = f"MAX_TOKENS={MIN_MAX_TOKENS}"
+    text = re.sub(r"^MAX_TOKENS=.*$", line, text, flags=re.M) if m else \
+        text.rstrip("\n") + "\n" + line + "\n"
+    with open(env_path, "w", encoding="utf-8") as f:
+        f.write(text)
+    print(f"已把 .env 的 MAX_TOKENS 从 {current or '(未设置)'} 调高到 {MIN_MAX_TOKENS}"
+          f"——同组合并后一次要输出上百行，原值会截断输出")
 
 def translate_csv_files():
     """处理CSV文件翻译流程"""
@@ -29,6 +56,8 @@ def translate_csv_files():
         else:
             print("错误：缺失.env.sample文件，请检查GakumasPreTranslation项目完整性")
             return False
+
+    ensure_max_tokens(env_path)
 
     # 检查临时目录状态
     tmp_dirs = [
@@ -63,13 +92,20 @@ def translate_csv_files():
         print("请先执行选项2生成预处理文件")
         return False
 
-    # 执行文件复制
+    # 执行文件复制；cidol/csprt 的同组段落在此拼成一个 CSV 一次翻完，
+    # 否则后段看不到前段，跨段剧情会断——与自动管线共用同一份合并实现。
     print("正在复制翻译文件...")
-    for filename in csv_files:
-        src = os.path.join(source_dir, filename)
-        dst = os.path.join(target_dir, filename)
-        shutil.copy2(src, dst)
+    manifest = merge_groups(
+        [os.path.join(source_dir, f) for f in csv_files], target_dir)
+    for filename in sorted(os.listdir(target_dir)):
         print(f"已复制: {filename}")
+
+    # 台账要落盘：菜单3 和菜单4 是两次独立调用，内存里传不过去
+    manifest_path = os.path.join("./todo/untranslated", GROUP_MANIFEST)
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        json.dump(manifest, f, ensure_ascii=False, indent=1)
+    if manifest:
+        print(f"同组合并 {len(manifest)} 组，台账: {manifest_path}")
 
     # 输出后续指引
     print("\n请手动执行以下操作：")

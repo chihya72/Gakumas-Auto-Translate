@@ -92,6 +92,13 @@ viewer 工作台：成员认领 → 编辑 → 完成时自动覆盖下一阶段
 | B.9 | 真实小批量端到端验证 | ✅ | `adv_cidol-hume-3-018_01` 已进工作仓 issue #13；35 行标签校验 0 错 |
 | B.10 | Actions 临时 clone git 身份 | ✅ | 修复远端 seed commit 缺 author；非无改动失败不再吞掉 |
 | B.11 | 远端 Actions 验收 | ✅ | run `28914392643` 成功；`01.csv/02.csv` 和 raw txt 已在工作仓，两个 AI CSV 标签校验 0 错 |
+| B.12 | AI 机翻翻译记忆（TM） | ✅ | `tools/vendor/tm.ts`：加载 `csv_data/` 历史译文，按 剧本/角色 生成 REF 前文注入提示词；精确命中复用（默认仅人工译文，`TM_PREFILL=all` 全量复用）；同文件分批顺序翻译、前批译文自动成为后批前文；`TM_DIR` 可指定记忆目录 |
+| B.13 | 按 gakumas-viewer 工作台分类的策略矩阵 | ✅ | 类型与 viewer 一致：cidol/csprt/event 同一批段落一起翻译（merge）、dear 此前全部同角色好感度话数参考（all-previous）、pstory 同样文本直接套用（exact）、pevent/other 不参考（none）；分类来自规范仓库目录树生成的 `tools/vendor/story-index.json`，全量 3388 文件 0 兜底，`tools/update_story_index.py` 可刷新索引 |
+| B.14 | 停止机翻回写 `csv_data`（推翻 B.6） | ✅ | `csv_data` 是实装译文目录，不该存机翻。`restore_csvs` 只写临时目录；删掉 workflow 的 `Commit pretranslated CSV`；去重台账改以工作仓为准且**读取失败即致命**（降级会让管线以为什么都没翻过，重翻 3000+ 剧本）；清掉 07-30 三个 bot 提交遗留的 15 个机翻文件 |
+| B.15 | 角色卡与术语表 | ✅ | `character-cards.json`（16 角色，覆盖人工译文 95% 台词）+ `glossary.json`（只收单一译法确定的词）。所有剧情类型一律加载，按出场角色注入。`tools/build_character_cards.py` 由统计生成草稿，语气规则人工定稿 |
+| B.16 | 策略矩阵改版（推翻 B.13） | ✅ | cidol/csprt 同组 01~03 **合并成一次请求**（管线侧拼接 + 按行数拆回，`tools/test_group_merge.py` 保往返一致）；event 顺序翻译 + 抽词生成本活动临时术语表；dear 改**滚动摘要 + 上一话全文**，弃用全量 REF；pstory 精确套用仅限人工译文；删掉 csprt 同批次兜底与参考行按长度排序（两者都在破坏剧情连贯） |
+| B.17 | 上下文回显自检 | ✅ | 译文中出现 `REF|`/`TERM|`/`角色卡`/`剧情摘要`/`术语表` 即判失败，与既有 HTML 标签校验同一道闸 |
+| B.18 | `seed --refresh` 刷新存量机翻 | ✅ | 以 issue 的 `tr::`/`pr::` 认领标记为闸门，只覆盖无人认领的 `ai_csv/`；人工层不碰 |
 
 ### C. 网页工作台 🔄
 | # | 任务 | 状态 | 说明 |

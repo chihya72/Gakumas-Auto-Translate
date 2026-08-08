@@ -69,14 +69,17 @@ jobs:
             --prefix "${PREFIX:-$DEFAULT_PREFIX}" \
             --limit "${LIMIT:-50}"
 
-      - name: Commit pretranslated CSV
+      # dear 滚动摘要是本仓库唯一允许 CI 写入的路径。
+      # 必须精确到这个文件——用 git add -A 会把机翻 CSV 一起带进来，
+      # 那正是我们刚堵上的口子。
+      - name: Commit dear summaries
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add csv_data
+          git add tools/vendor/dear-summaries.json
           if git diff --cached --quiet; then
-            echo "No csv_data changes"
+            echo "No summary changes"
           else
-            git commit -m "auto pretranslate campus updates"
+            git commit -m "update dear rolling summaries"
             git push
           fi

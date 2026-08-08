@@ -104,6 +104,72 @@ run.py                        # 快速启动脚本
 }
 ```
 
+## AI 机翻的上下文机制
+
+AI 机翻不再孤立翻译每一批对话。机制分两层：**角色卡与术语表**保证"谁说话像谁、术语一致"，
+**分类型的剧情上下文**保证"剧情连不连"。两层正交，各管各的。
+
+分类不靠猜文件名，而是用规范仓库
+[gakuen-adapted-stories](https://github.com/imas-tools/gakuen-adapted-stories) 的目录结构生成的
+`tools/vendor/story-index.json`（与 [gakumas-viewer](https://github.com/chihya72/gakumas-viewer)
+同源的分类体系），每个扁平文件名都映射到标准分类与剧情组。
+
+### 角色卡与术语表（所有类型一律加载）
+
+- **角色卡** `tools/vendor/character-cards.json` —— 16 个重点角色，覆盖 `csv_data` 人工译文里
+  95% 的台词。记录自称、敬语程度、语气规则、对每个人的称呼。只注入本次请求实际出场的角色。
+  卡里**不写**性格形容词和剧情背景——那会让模型为了"演得像"而加戏。
+  称呼与自称来自人工整理的称呼表（20×20 矩阵，行=说话人、列=被称呼者、对角线=自称）：
+  `python tools/build_character_cards.py --xlsx 称呼表.xlsx`。
+  称呼表整张替换该角色的称呼，不与统计结果混合——卡是硬约束，来源必须干净。
+  不带 `--xlsx` 时退回统计生成。语气规则（`speech`）任何情况下都需人工填写。
+- **术语表** `tools/vendor/glossary.json` —— 只收录人工译文中有压倒性单一译法的词；
+  译法随上下文变化的词（`ライブ` 演唱会/演出）不放进来，硬约束会逼模型译错。
+  只注入原文中实际出现的词条。
+
+### 分类型的剧情上下文
+
+| 类型 | 规范路径 | 剧情上下文策略 |
+|---|---|---|
+| cidol P卡剧情 | `cidol-<角色>-3-<话>/` | **同组 01~03 合并成一次请求**，模型看到完整起承转合 |
+| csprt S卡剧情 | `csprt-<批次>-<卡号>/` | **同组 01~03 合并成一次请求** |
+| event 活动剧情 | `event/<号>/` | 顺序翻译 + 同组前文按原顺序全量注入；**翻译前先抽词生成本活动临时术语表** |
+| dear 好感度剧情 | `dear/<角色>/<话>` | **滚动摘要 + 上一话全文**。摘要每翻完一话更新，存 `tools/vendor/dear-summaries.json` |
+| pstory 培养故事 | `pstory/<卡>/<角色>/` | 精确匹配套用，**仅复用人工译文** |
+| pevent 培养事件 | `pevent/<号>/<角色>/<事件>/` | 不注入剧情上下文 |
+| other 其它剧情 | `live/` `unit/` `startup/` `tutorial/` … | 不注入剧情上下文 |
+
+通用机制：**精确复用** —— 与历史译文完全相同的句子直接复用旧译文（默认只复用人工译文），
+不再消耗 API。机翻不复用，否则一条错译会被无差别复制到所有匹配文件并永久固化。
+
+参考行以 `REF|` 前缀、术语以 `TERM|` 前缀注入，即使模型误回显也不会被当成译文；
+管线还会在还原阶段直接拒收含这些标记的译文。
+
+### 环境变量
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `TM_DIR` | `../csv_data`（相对 GakumasPreTranslation） | 翻译记忆目录，只读人工实装译文 |
+| `TM_PREFILL` | `human` | `human` 只复用人工译文；`all` 复用全部历史译文 |
+| `TM_MAX_REF` | `40` | 参考行上限（event 的同组前文不受此限） |
+| `MAX_LINES_PER_REQUEST` | `250` | 单次请求行数上限。合并后的同组 CSV 必须放得下，否则又被切开等于白合并 |
+| `MAX_TOKENS` | `12288` | 250 行输出约需 10000+ token，调低会被截断 |
+| `DEAR_SUMMARY_FILE` | 不设 | dear 滚动摘要文件路径；不设 = 不启用摘要 |
+
+对应的实现位于 `tools/vendor/`，本地 `GakumasPreTranslation/src/` 与自动化管线均使用同一份文件。
+`dear-summaries.json` 例外——它是可写状态，由引擎按 `DEAR_SUMMARY_FILE` 直接读写本仓库那一份。
+
+规范索引更新：运行 `python tools/update_story_index.py` 会从 gakuen-adapted-stories
+拉取最新目录树并重新生成 `tools/vendor/story-index.json`，随后由管线覆盖到翻译引擎。
+
+### csv_data 只放实装译文
+
+`csv_data/` 是实装进游戏的翻译数据目录，**机翻产物一律不回写**，只推送到工作仓库
+[gakumas-translation-work](https://github.com/chihya72/gakumas-translation-work) 供翻译者认领。
+引擎升级后要把工作仓库里的旧机翻刷成新版，用
+`python tools/seed_work_repo.py --refresh ...`——它以 issue 的 `tr::`/`pr::` 认领标记为闸门，
+只覆盖无人认领的 `ai_csv/`，人工层 `translated_csv/`、`proofread_csv/` 任何情况下不碰。
+
 ## 依赖项
 
 本工具依赖于[GakumasPreTranslation](https://github.com/imas-tools/GakumasPreTranslation)项目（即SCPreTranslation）进行实际翻译操作。请确保已正确安装并配置该项目。

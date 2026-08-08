@@ -7,20 +7,50 @@ import re
 import csv
 import json
 import shutil
-from .utils import clean_html_tags, process_unit_files_in_folder  # 添加导入
+from .utils import (clean_html_tags, process_unit_files_in_folder,
+                    GROUP_MANIFEST, split_merged)  # 添加导入
 from .config import get_translation_mode  # 添加导入
+
+
+def restore_group_parts(untranslated_dir, translated_dir):
+    """把菜单3 合并翻译的结果拆回各段，两侧目录都还原成分段文件。
+
+    后续所有步骤（文件集合校验、按 csv_orig 还原原文）都按分段文件名来找，
+    所以合并必须在这里就地拆开，不能带到下游。
+    """
+    manifest_path = os.path.join("./todo/untranslated", GROUP_MANIFEST)
+    if not os.path.exists(manifest_path):
+        return
+    with open(manifest_path, "r", encoding="utf-8") as f:
+        manifest = json.load(f)
+    if not manifest:
+        return
+    csv_dict_dir = "./todo/untranslated/csv_dict"
+    for name, layout in manifest.items():
+        merged = os.path.join(translated_dir, name)
+        if os.path.exists(merged):
+            split_merged(merged, [tuple(x) for x in layout], translated_dir)
+        # 未翻译侧从 csv_dict 还原分段，保证两侧文件集合一致
+        for part, _ in layout:
+            src = os.path.join(csv_dict_dir, part)
+            if os.path.exists(src):
+                shutil.copy2(src, os.path.join(untranslated_dir, part))
+    print(f"已拆回 {len(manifest)} 组同组合并的翻译结果")
+
 
 def merge_translations():
     """合并翻译文件的主函数"""
     # 步骤1: 检查目录文件一致性
     gakumas_translated_dir = "./GakumasPreTranslation/tmp/translated"
     gakumas_untranslated_dir = "./GakumasPreTranslation/tmp/untranslated"
-    
+
     # 检查目录是否存在
     if not os.path.exists(gakumas_translated_dir) or not os.path.exists(gakumas_untranslated_dir):
         print("错误：Gakumas翻译目录不存在，请先完成翻译流程")
         return False
-    
+
+    restore_group_parts(gakumas_untranslated_dir, gakumas_translated_dir)
+
     # 获取两个目录的CSV文件列表
     translated_files = set(f for f in os.listdir(gakumas_translated_dir) if f.endswith(".csv"))
     untranslated_files = set(f for f in os.listdir(gakumas_untranslated_dir) if f.endswith(".csv"))

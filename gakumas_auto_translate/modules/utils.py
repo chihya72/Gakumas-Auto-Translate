@@ -2,10 +2,101 @@
 工具模块，包含共享的实用函数
 """
 
+import csv
 import os
 import re
 import json
+import shutil
+from pathlib import Path
+
 import pandas as pd
+
+# ---------- 同组段落合并（cidol / csprt） ----------
+# cidol-<角色>-3-<话> 的 01~03、csprt-<批次>-<卡号> 的 01~03 是一张卡的一个完整
+# 故事。分成三次请求时后段看不到前段，剧情就断了；拼成一个 CSV 一次翻完，模型
+# 才能看到完整的起承转合。本地菜单和自动管线共用这两个函数，避免两套行为。
+GROUP_MERGE_RE = re.compile(r"^adv_(cidol|csprt)-.*_\d+$")
+# CSV 末尾的元数据行（非台词）
+META_IDS = ("info", "译者")
+# 合并台账文件名：菜单3 写、菜单4 读（两次独立调用之间要持久化）
+GROUP_MANIFEST = "group_manifest.json"
+
+
+def merge_groups(files, dst):
+    """把同组段落拼成一个 CSV 写进 dst，返回 {合并后文件名: [(原文件名, 台词行数), ...]}。
+
+    不同组的文件原样复制。返回的台账供 split_merged 按行数拆回。
+    """
+    dst = Path(dst)
+    groups = {}
+    for f in sorted(Path(p) for p in files):
+        story, _, _ = f.stem.rpartition("_")
+        key = story if story and GROUP_MERGE_RE.match(f.stem) else f.stem
+        groups.setdefault(key, []).append(f)
+
+    manifest = {}
+    for parts in groups.values():
+        if len(parts) == 1:
+            shutil.copy2(parts[0], dst / parts[0].name)
+            continue
+        merged_rows, fieldnames, layout, first_info = [], None, [], None
+        for f in parts:
+            with f.open(encoding="utf-8", newline="") as fh:
+                reader = csv.DictReader(fh)
+                rows = list(reader)
+                fieldnames = fieldnames or reader.fieldnames
+            # info/译者 每段各有一份。全带上的话翻译引擎会取到【最后】一个 info
+            # 当输出文件名，结果就写成了最后一段的名字。只留第一段的 info。
+            data = [r for r in rows if r.get("id") not in META_IDS]
+            if first_info is None:
+                first_info = next((r for r in rows if r.get("id") == "info"), None)
+            merged_rows.extend(data)
+            layout.append((f.name, len(data)))
+        if first_info is not None:
+            merged_rows.append(first_info)
+        name = parts[0].name
+        with (dst / name).open("w", encoding="utf-8", newline="") as fh:
+            writer = csv.DictWriter(fh, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(merged_rows)
+        manifest[name] = layout
+        print(f"合并同组: {name} <- {', '.join(n for n, _ in layout)}")
+    return manifest
+
+
+def split_merged(translated_path, layout, out_dir):
+    """把合并翻译的结果按行数拆回各段，返回拆出的文件路径列表。
+
+    合并时每段只留台词行、info 只保留第一段那份；引擎输出时又补上自己的
+    info + 译者。所以先剥掉全部元数据行，按 layout 切开，再给每段补回
+    【它自己的】info 和共用的译者行。
+    """
+    translated_path, out_dir = Path(translated_path), Path(out_dir)
+    with translated_path.open(encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        fieldnames = reader.fieldnames
+        rows = list(reader)
+    translator = next((r for r in rows if r.get("id") == "译者"), None)
+    data = [r for r in rows if r.get("id") not in META_IDS]
+    expected = sum(n for _, n in layout)
+    if len(data) != expected:
+        print(f"!! 合并结果行数不符（{len(data)} != {expected}），跳过: {translated_path.name}")
+        return []
+    out, cursor = [], 0
+    for name, count in layout:
+        part = data[cursor:cursor + count]
+        cursor += count
+        part = part + [{"id": "info", "name": name[:-len(".csv")] + ".txt",
+                        "text": "", "trans": ""}]
+        if translator:
+            part = part + [translator]
+        dest = out_dir / name
+        with dest.open("w", encoding="utf-8", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(part)
+        out.append(dest)
+    return out
 
 def create_sample_dictionary(dict_file):
     """创建一个示例字典文件"""

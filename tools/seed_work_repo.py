@@ -18,6 +18,7 @@
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -80,6 +81,26 @@ def existing_issue_titles(repo):
     return {i["title"] for i in json.loads(out or "[]")}
 
 
+def is_unclaimed(body):
+    """认领标记两个都为空 = 还没人开工，ai_csv 那份可以安全覆盖成新版机翻。
+
+    issue body 里的 `<!-- tr:: -->` / `<!-- pr:: -->` 是翻译/校对认领台账，
+    任一非空说明有人在做，那份文件绝不能动。
+    找不到这两个标记 = 老格式 issue，无从判断，按"有人在做"处理——宁可不覆盖。
+    """
+    claims = re.findall(r"<!--\s*(?:tr|pr)::(.*?)-->", body or "")
+    return len(claims) == 2 and not any(c.strip() for c in claims)
+
+
+def unclaimed_titles(repo):
+    out = run(["gh", "issue", "list", "-R", repo, "--state", "all",
+               "--limit", "1000", "--json", "title,body"]).stdout
+    unclaimed = {i["title"] for i in json.loads(out or "[]")
+                 if is_unclaimed(i.get("body"))}
+    print(f"工作仓库无人认领的文件: {len(unclaimed)} 个")
+    return unclaimed
+
+
 def ensure_repo(repo, create):
     try:
         run(["gh", "repo", "view", repo])
@@ -101,7 +122,10 @@ def ensure_labels(repo):
             print("   (label)", e.stderr.strip())
 
 
-def push_files(repo, plan, raw_dir="", csv_src=CSV_SRC):
+def push_files(repo, plan, raw_dir="", csv_src=CSV_SRC, refresh=False):
+    # --refresh：引擎升级后，把无人认领的那批旧机翻刷成新版。
+    # 只动 ai_csv/，translated_csv/ 和 proofread_csv/ 是人工层，任何情况下不碰。
+    overwritable = unclaimed_titles(repo) if refresh else set()
     with tempfile.TemporaryDirectory() as tmp:
         run(["gh", "repo", "clone", repo, tmp, "--", "--depth", "1"])
         # 拷文件到工作树
@@ -109,9 +133,12 @@ def push_files(repo, plan, raw_dir="", csv_src=CSV_SRC):
             for filename, rpath in parts:
                 dst = os.path.join(tmp, rpath)
                 # 已在仓库的 CSV 不覆盖——里面可能有成员的在线编辑
-                if os.path.exists(dst):
+                allowed = filename[:-4] in overwritable
+                if os.path.exists(dst) and not allowed:
                     print(f"   skip csv (exists): {rpath}")
                 else:
+                    if os.path.exists(dst):
+                        print(f"   refresh csv (unclaimed): {rpath}")
                     os.makedirs(os.path.dirname(dst), exist_ok=True)
                     with open(os.path.join(csv_src, filename), "rb") as s, open(dst, "wb") as d:
                         d.write(s.read())
@@ -186,6 +213,8 @@ def main():
     ap.add_argument("--push", action="store_true", help="推送文件到工作仓库")
     ap.add_argument("--issues", action="store_true", help="创建认领 Issue")
     ap.add_argument("--raw-dir", default="", help="同时上传原始 txt 到工作仓库 raw/")
+    ap.add_argument("--refresh", action="store_true",
+                    help="用新版机翻覆盖工作仓库里【无人认领】的 ai_csv（引擎升级后跑一次）")
     args = ap.parse_args()
 
     if not args.stories and not args.prefix:
@@ -206,7 +235,7 @@ def main():
     if not ensure_repo(args.repo, args.create_repo):
         sys.exit(1)
     if args.push:
-        push_files(args.repo, plan, args.raw_dir, args.csv_src)
+        push_files(args.repo, plan, args.raw_dir, args.csv_src, args.refresh)
     if args.issues:
         ensure_labels(args.repo)
         make_issues(args.repo, plan)

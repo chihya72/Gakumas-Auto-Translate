@@ -19,15 +19,19 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from gakumas_auto_translate.modules import preprocessor
+from gakumas_auto_translate.modules.utils import merge_groups, split_merged
 
 CAMPUS_REPO = "DreamGallery/Campus-adv-txts"
 CAMPUS_DIR = "Resource"
 PRETRANS_REPO = "https://github.com/imas-tools/GakumasPreTranslation.git"
 WORK_REPO = "chihya72/gakumas-translation-work"
 TAG_RE = re.compile(r"</?[A-Za-z][A-Za-z0-9_:-]*(?:\\=[^>]*)?>")
+# 模型把注入的上下文块当成译文回显出来的特征；出现即判失败
+ECHO_MARKERS = ("REF|", "TERM|", "角色卡", "剧情摘要", "术语表")
 # 有台词的行特征；全无 = 空剧本（纯演出脚本），与本地菜单2的过滤同构，下载时直接跳过
 TEXT_LINE_RE = re.compile(r"(?:message|narration|choice) text=|title title=")
 ROOT = Path(__file__).resolve().parents[1]
+VENDOR_SRC = ROOT / "tools/vendor"
 PRETRANS_DIR = ROOT / "GakumasPreTranslation"
 YARN = shutil.which("yarn.cmd") or shutil.which("yarn") or "yarn"
 
@@ -80,26 +84,29 @@ def known_files(work_repo, branch):
         for f in p.glob(f"*{suffix}"):
             known.add(f.name.replace(".csv", ".txt"))
 
+    # 工作仓不存在 = 还没播种过，known 保持只有本仓库文件；由 seed 负责建仓。
+    # 但仓库存在时，下面两个查询失败必须致命——降级会让管线以为"什么都没翻过"，
+    # 把 3000+ 剧本重翻一遍烧 API。
     try:
-        issues = json.loads(out([
-            "gh", "issue", "list", "-R", work_repo, "--state", "all",
-            "--limit", "1000", "--json", "title",
-        ]) or "[]")
-        known.update(i["title"] + ".txt" for i in issues)
+        out(["gh", "api", f"repos/{work_repo}", "--jq", ".name"])
     except subprocess.CalledProcessError:
-        print(f"!! 无法读取工作仓库 issue，将只按本仓库文件去重: {work_repo}")
+        print(f"工作仓库尚不存在，跳过远端去重: {work_repo}")
+        return known
 
-    try:
-        paths = out([
-            "gh", "api", f"repos/{work_repo}/git/trees/{branch}?recursive=1",
-            "--jq", ".tree[].path",
-        ]).splitlines()
-        known.update(filter(None, (flat_txt_from_work_path(p) for p in paths)))
-        for raw_prefix in ("raw_txt/", "raw/"):
-            known.update(p[len(raw_prefix):] for p in paths
-                         if p.startswith(raw_prefix) and p.endswith(".txt"))
-    except subprocess.CalledProcessError:
-        print(f"!! 无法读取工作仓库文件树，将由 seed 脚本处理仓库存在性: {work_repo}")
+    issues = json.loads(out([
+        "gh", "issue", "list", "-R", work_repo, "--state", "all",
+        "--limit", "1000", "--json", "title",
+    ]) or "[]")
+    known.update(i["title"] + ".txt" for i in issues)
+
+    paths = out([
+        "gh", "api", f"repos/{work_repo}/git/trees/{branch}?recursive=1",
+        "--jq", ".tree[].path",
+    ]).splitlines()
+    known.update(filter(None, (flat_txt_from_work_path(p) for p in paths)))
+    for raw_prefix in ("raw_txt/", "raw/"):
+        known.update(p[len(raw_prefix):] for p in paths
+                     if p.startswith(raw_prefix) and p.endswith(".txt"))
 
     return known
 
@@ -129,21 +136,23 @@ def ensure_pretranslation_repo():
         run(["git", "clone", "--depth", "1", PRETRANS_REPO, str(p)])
     if not (p / "node_modules").exists():
         run([YARN, "--cwd", str(p), "install", "--frozen-lockfile"])
-    patch_pretranslation_prompt()
+    overlay_vendor_files()
 
 
-def patch_pretranslation_prompt():
-    p = PRETRANS_DIR / "src/prompts.ts"
-    marker = "占位符：GAT_TAG_0、GAT_TAG_1 等必须原样保留"
-    text = p.read_text(encoding="utf-8")
-    if marker in text:
-        return
-    text = text.replace(
-        "- 特殊符号：<br>代表换行，如果需要，应保留<br>。",
-        "- 特殊符号：<br>代表换行，如果需要，应保留<br>。\n"
-        "- HTML标签会被替换成 GAT_TAG_0、GAT_TAG_1 等占位符；这些占位符必须原样保留，数量、顺序都不能改变；只翻译占位符之间的可见日文文本。",
-    )
-    p.write_text(text, encoding="utf-8")
+def overlay_vendor_files():
+    """用本仓库 tools/vendor 下的翻译引擎文件覆盖 GakumasPreTranslation，
+    使新克隆/CI 环境也具备翻译记忆（TM）能力。"""
+    # dear-summaries.json 不覆盖：它是可写状态，由引擎按 DEAR_SUMMARY_FILE
+    # 直接读写本仓库那一份，覆盖到临时 clone 里翻完就丢了
+    for name in ("tm.ts", "translate.ts", "prompts.ts", "story-index.json",
+                 "character-cards.json", "glossary.json"):
+        src = VENDOR_SRC / name
+        dst = PRETRANS_DIR / "src" / name
+        if not src.exists():
+            print(f"!! 缺少 vendor 文件: {src}")
+            continue
+        shutil.copy2(src, dst)
+        print(f"已覆盖翻译引擎文件: {name}")
 
 
 def ensure_pretranslation_env():
@@ -159,7 +168,8 @@ def ensure_pretranslation_env():
         f"OPENAI_BASE_URL={os.environ['OPENAI_BASE_URL']}",
         f"MODEL={os.environ['MODEL']}",
         f"LOG_LEVEL={os.environ.get('LOG_LEVEL', 'info')}",
-        f"MAX_TOKENS={os.environ.get('MAX_TOKENS', '4096')}",
+        # 合并后的同组 CSV 一次输出 250 行，约需 10000+ token；4096 会被截断
+        f"MAX_TOKENS={os.environ.get('MAX_TOKENS', '12288')}",
     ]
     p.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -170,8 +180,7 @@ def prepare_translate_input():
     clear_dir(dst)
     clear_dir(PRETRANS_DIR / "tmp/translated")
     mask_csv_tags(src)
-    for f in src.glob("*.csv"):
-        shutil.copy2(f, dst / f.name)
+    return merge_groups(sorted(src.glob("*.csv")), dst)
 
 
 def mask_csv_tags(folder):
@@ -198,13 +207,17 @@ def mask_tags(text):
     return TAG_RE.sub(repl, text or "")
 
 
-def restore_csvs():
+def restore_csvs(manifest=None):
     src = PRETRANS_DIR / "tmp/translated"
     out_dir = Path("todo/translated/csv")
-    csv_data = ROOT / "csv_data"
     out_dir.mkdir(parents=True, exist_ok=True)
-    csv_data.mkdir(exist_ok=True)
     stories = set()
+
+    # 合并翻译的先按行数拆回各段（就地拆在 src 里），之后逐段处理逻辑不变
+    for name, layout in (manifest or {}).items():
+        merged = src / name
+        if merged.exists():
+            split_merged(merged, layout, src)
 
     for translated in sorted(src.glob("*.csv")):
         orig_path = Path("todo/untranslated/csv_orig") / translated.name
@@ -238,13 +251,14 @@ def restore_csvs():
         if translator:
             rows.append(translator)
 
-        for dest in [out_dir / translated.name, csv_data / translated.name]:
-            with dest.open("w", encoding="utf-8", newline="") as f:
-                writer = csv.DictWriter(f, fieldnames=fieldnames)
-                writer.writeheader()
-                writer.writerows(rows)
+        # 只写临时目录交给 seed 推工作仓；csv_data 是实装译文目录，机翻不回写
+        dest = out_dir / translated.name
+        with dest.open("w", encoding="utf-8", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(rows)
         stories.add(translated.stem.rpartition("_")[0] or translated.stem)
-        print(f"入 csv_data: {translated.name}")
+        print(f"待推送工作仓: {translated.name}")
 
     return sorted(stories)
 
@@ -277,6 +291,9 @@ def validate_rows_html_tags(filename, rows):
             errors.append(
                 f"{filename}:{idx} 标签不一致 src={src_tags} trans={trans_tags}"
             )
+        echoed = next((m for m in ECHO_MARKERS if m in trans), None)
+        if echoed:
+            errors.append(f"{filename}:{idx} 回显了上下文块（含 {echoed!r}）: {trans[:60]}")
     return errors
 
 
@@ -325,10 +342,18 @@ def main():
             preprocessor.preprocess_txt_files(preserve_html=True)
             ensure_pretranslation_repo()
             ensure_pretranslation_env()
-            prepare_translate_input()
-            run([YARN, "--cwd", str(PRETRANS_DIR), "translate:folder"])
+            manifest = prepare_translate_input()
+            run([YARN, "--cwd", str(PRETRANS_DIR), "translate:folder"], env={
+                **os.environ,
+                # 翻译记忆只读 csv_data（人工实装译文），机翻不回写，不自我污染
+                "TM_DIR": str(ROOT / "csv_data"),
+                "DEAR_SUMMARY_FILE": str(VENDOR_SRC / "dear-summaries.json"),
+                # 合并后的同组 CSV 必须放得进一次请求，否则又被切开等于白合并
+                "MAX_LINES_PER_REQUEST": os.environ.get("MAX_LINES_PER_REQUEST", "250"),
+                "MAX_TOKENS": os.environ.get("MAX_TOKENS", "12288"),
+            })
 
-            stories = restore_csvs()
+            stories = restore_csvs(manifest)
             if not stories:
                 raise SystemExit("没有生成可播种的 CSV")
             run([
