@@ -34,6 +34,36 @@ export interface LLMConfig {
   max_tokens: number;
 }
 
+export class FatalTranslationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "FatalTranslationError";
+  }
+}
+
+export class FatalApiError extends FatalTranslationError {
+  constructor(message: string) {
+    super(message);
+    this.name = "FatalApiError";
+  }
+}
+
+function isDeepSeekV4(model: string): boolean {
+  return model.toLowerCase().includes("deepseek-v4");
+}
+
+export function validateMaxTokens(model: string, maxTokens: number): void {
+  if (!Number.isInteger(maxTokens) || maxTokens <= 0) {
+    throw new FatalTranslationError(`MAX_TOKENS 必须是正整数，当前值: ${maxTokens}`);
+  }
+  if (model.toLowerCase().includes("deepseek-v4-pro") && maxTokens < 65536) {
+    throw new FatalTranslationError(
+      `MAX_TOKENS=${maxTokens} 过小；DeepSeek V4 Pro thinking 的推理与最终译文` +
+        "共用输出预算，本管线要求至少 65536。",
+    );
+  }
+}
+
 function splitCsvInfo(csvTextInfo: CsvTextInfo, batchNum: number) {
   const batchSize = Math.ceil(csvTextInfo.data.length / batchNum);
   const rtn: CsvTextInfo[] = [];
@@ -130,6 +160,7 @@ async function buildEventGlossary(
     }
     log.info(`event 抽词: ${group} 得到 ${Object.keys(result).length} 条`);
   } catch (e) {
+    if (e instanceof FatalTranslationError) throw e;
     // 抽词失败不该拖垮翻译——退回只用全局术语表
     log.warn(`event 抽词失败，跳过临时术语表: ${e.message}`);
   }
@@ -258,21 +289,24 @@ async function translateCsvTextInfo(
   const data = csvTextInfo.data;
   const pending: CsvDataLine[] = [];
 
-  if (tm) {
-    // 精确命中的行直接复用历史译文，其余交给 LLM。
-    // 只复用人工译文：机翻一旦错译进了库，"复用"不会再经过模型，
-    // 错误会被无差别复制到所有匹配文件上并永久固化。
-    const reuseAll = prefillMode() === "all";
-    for (const row of data) {
+  // 重试时已成功归位的译文必须保留，只把缺失行再次发给模型。
+  // 旧逻辑会把整批原样重发，既覆盖成功行，又为相同内容重复付费。
+  const reuseAll = prefillMode() === "all";
+  for (const row of data) {
+    if (row.trans) continue;
+    if (tm) {
+      // 精确命中的行直接复用历史译文，其余交给 LLM。
+      // 只复用人工译文：机翻一旦错译进了库，"复用"不会再经过模型，
+      // 错误会被无差别复制到所有匹配文件上并永久固化。
       const hit = tm.lookup(row.text);
       if (hit && (reuseAll || hit.human)) {
         row.trans = hit.trans;
       } else {
         pending.push(row);
       }
+    } else {
+      pending.push(row);
     }
-  } else {
-    pending.push(...data);
   }
 
   if (pending.length === 0) {
@@ -296,6 +330,14 @@ async function translateCsvTextInfo(
   const gptOutput = await chat(userInput, config, context);
   const translated = DialogueListDeser.deserialize(gptOutput, pending.length);
 
+  // 一个有效行号都没有时，原样重试只会再次消耗同一份输入和思考 token。
+  // 这通常表示输出预算不足、返回格式完全错误或网关返回了非译文内容。
+  if (translated.size === 0) {
+    throw new Error(
+      `模型响应未包含任何有效译文行（0/${pending.length}），已停止原样重试以避免重复扣费`,
+    );
+  }
+
   const missing: number[] = [];
   for (let index = 0; index < pending.length; index++) {
     const dialogue = translated.get(index);
@@ -310,7 +352,15 @@ async function translateCsvTextInfo(
         (missing.length > 10 ? " …" : ""),
     );
     if (leftRetry > 0) {
-      log.info("Retrying...");
+      if (tm && selfFeed) {
+        // 部分成功的译文立刻作为同文件前文，补翻缺失行时也能看到已有上下文。
+        for (const row of pending) {
+          if (row.trans) {
+            tm.add({ text: row.text, trans: row.trans, name: row.name || "", story });
+          }
+        }
+      }
+      log.info(`仅重试缺失的 ${missing.length} 行；已成功的 ${translated.size} 行不会重发`);
       return await translateCsvTextInfo(csvTextInfo, config, leftRetry - 1, tm, selfFeed);
     }
     throw new Error(`缺 ${missing.length} 行译文，重试已用尽`);
@@ -358,10 +408,12 @@ export const DialogueListDeser = {
       if (parts.length < 3) continue;
       const index = Number(parts[0].trim());
       if (!Number.isInteger(index) || index < 0 || index >= expected) continue;
+      const text = parts.slice(2).join("|").replaceAll("<br>", "\\n");
+      if (!text.trim()) continue;
       rtn.set(index, {
         name: parts[1],
         // 译文里出现 | 时会被切成 4 段以上，拼回去而不是整行丢弃
-        text: parts.slice(2).join("|").replaceAll("<br>", "\\n"),
+        text,
       });
     }
     return rtn;
@@ -374,6 +426,7 @@ export async function chat(
   context: string[] = [],
 ) {
   try {
+    validateMaxTokens(model, max_tokens);
     const openai = axios.create({
       baseURL,
       headers: {
@@ -386,31 +439,75 @@ export async function chat(
       messages.push({ role: "user", content: block });
     }
     messages.push({ role: "user", content: userInput });
-    log.info(`Sending request to ${model} API, please wait...`);
+    const deepSeekV4 = isDeepSeekV4(model);
+    const requestBody: any = {
+      model,
+      messages,
+      max_tokens,
+    };
+    if (deepSeekV4) {
+      // DeepSeek OpenAI 兼容接口的显式 thinking 开关；high 是普通请求默认强度。
+      requestBody.thinking = { type: "enabled" };
+      requestBody.reasoning_effort = "high";
+    } else {
+      requestBody.temperature = 0.7;
+    }
+    const configuredTimeout = parseInt(process.env.API_TIMEOUT_MS || "", 10);
+    const timeout =
+      Number.isFinite(configuredTimeout) && configuredTimeout > 0 ? configuredTimeout : 600000;
+    log.info(
+      `Sending request to ${model} API ` +
+        `(thinking=${deepSeekV4 ? "enabled/high" : "provider-default"}, ` +
+        `max_tokens=${max_tokens}, timeout=${Math.round(timeout / 1000)}s), please wait...`,
+    );
     const response = await openai.post(
       "/v1/chat/completions",
+      requestBody,
       {
-        model,
-        messages,
-        temperature: 0.7,
-        max_tokens,
-      },
-      {
-        timeout: 180000,
+        timeout,
       },
     );
 
-    const generatedText = response.data.choices[0].message.content;
-    const tokenConsumed = response.data.usage.total_tokens;
+    const choice = response.data?.choices?.[0];
+    if (!choice) {
+      throw new Error("API 响应缺少 choices[0]");
+    }
+    const generatedText = choice.message.content || "";
+    const reasoningText = choice.message.reasoning_content || "";
+    const usage = response.data.usage || {};
+    const reasoningTokens = usage.completion_tokens_details?.reasoning_tokens ?? "unknown";
+    const finishReason = choice.finish_reason || "unknown";
+    log.info(
+      `API response: finish_reason=${finishReason}, ` +
+        `content_chars=${generatedText.length}, reasoning_chars=${reasoningText.length}, ` +
+        `prompt_tokens=${usage.prompt_tokens ?? "unknown"}, ` +
+        `completion_tokens=${usage.completion_tokens ?? "unknown"}, ` +
+        `reasoning_tokens=${reasoningTokens}, total_tokens=${usage.total_tokens ?? "unknown"}`,
+    );
+    if (!generatedText.trim()) {
+      const suffix = finishReason === "length" ? "（输出预算已耗尽）" : "";
+      throw new Error(`API 最终译文 content 为空，finish_reason=${finishReason}${suffix}`);
+    }
+    if (finishReason === "length") {
+      log.warn(
+        "API 输出被 max_tokens 截断；将保留已返回的有效行，并且只重试缺失行。" +
+          "若没有有效行则立即停止。",
+      );
+    }
     log.debug(`Generated Text: ${generatedText}`);
-    log.debug(`Consumed token: ${tokenConsumed}`);
     return generatedText;
   } catch (error) {
-    log.error(`Error: ${error.message}`);
-    if (error.response && error.response.data && error.response.data.error) {
-      log.error(`Error: ${error.response.data.error.message}`);
-      throw new Error(error.response.data.error.message);
+    const status = error.response?.status;
+    const apiMessage = error.response?.data?.error?.message;
+    const message = apiMessage || error.message || String(error);
+    log.error(`API error${status ? ` HTTP ${status}` : ""}: ${message}`);
+    if (error instanceof FatalTranslationError) {
+      throw error;
     }
-    throw error;
+    // 认证、余额、请求参数等 4xx 不会靠换下一个文件自行恢复，必须终止整轮。
+    if (status >= 400 && status < 500 && ![408, 409, 425, 429].includes(status)) {
+      throw new FatalApiError(`API HTTP ${status}: ${message}`);
+    }
+    throw new Error(status ? `API HTTP ${status}: ${message}` : message);
   }
 }

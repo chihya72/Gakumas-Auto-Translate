@@ -31,6 +31,7 @@ jobs:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
       MODEL: ${{ secrets.MODEL }}
+      # V4 Pro thinking 同时消耗推理与最终译文预算；管线会在发请求前校验至少 65536。
       MAX_TOKENS: ${{ secrets.MAX_TOKENS }}
       LOG_LEVEL: info
     steps:

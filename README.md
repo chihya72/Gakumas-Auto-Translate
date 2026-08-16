@@ -153,11 +153,15 @@ AI 机翻不再孤立翻译每一批对话。机制分两层：**角色卡与术
 | `TM_PREFILL` | `human` | `human` 只复用人工译文；`all` 复用全部历史译文 |
 | `TM_MAX_REF` | `40` | 参考行上限（event 的同组前文不受此限） |
 | `MAX_LINES_PER_REQUEST` | `250` | 单次请求行数上限。合并后的同组 CSV 必须放得下，否则又被切开等于白合并 |
-| `MAX_TOKENS` | `12288` | 250 行输出约需 10000+ token，调低会被截断 |
+| `MAX_TOKENS` | 普通模型 `12288`；DeepSeek V4 Pro thinking `65536` | thinking 的推理与最终译文共用预算；管线会在付费请求前校验 |
 | `DEAR_SUMMARY_FILE` | 不设 | dear 滚动摘要文件路径；不设 = 不启用摘要 |
 
 对应的实现位于 `tools/vendor/`，本地 `GakumasPreTranslation/src/` 与自动化管线均使用同一份文件。
 `dear-summaries.json` 例外——它是可写状态，由引擎按 `DEAR_SUMMARY_FILE` 直接读写本仓库那一份。
+
+自动管线采用付费防重策略：单个文件完全无有效输出时不原样重试，部分成功时只补发缺失行；
+全局错误会停止剩余文件，并先把错误前已完成的剧情组播种到工作仓。若当前分支上一轮失败，
+下一次定时首跑会在调用模型前暂停；手动 Re-run 或 `workflow_dispatch` 可明确恢复。
 
 规范索引更新：运行 `python tools/update_story_index.py` 会从 gakuen-adapted-stories
 拉取最新目录树并重新生成 `tools/vendor/story-index.json`，随后由管线覆盖到翻译引擎。

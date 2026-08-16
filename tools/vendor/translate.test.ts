@@ -6,7 +6,11 @@
  * 对上，整篇译文错位一格却不报错——静默的错译比崩溃危险得多。
  */
 import assert from "assert";
-import { DialogueListDeser as D } from "./translate";
+import {
+  DialogueListDeser as D,
+  FatalTranslationError,
+  validateMaxTokens,
+} from "./translate";
 
 function texts(m: Map<number, { name: string; text: string }>, n: number) {
   const out: (string | null)[] = [];
@@ -51,6 +55,9 @@ assert.strictEqual(D.deserialize("5|燕|越界\n0|燕|甲", 1).size, 1);
 // <br> 还原成 CSV 里的 \n 字面量
 assert.strictEqual(D.deserialize("0|燕|上<br>下", 1).get(0)!.text, "上\\n下");
 
+// 空译文不能冒充成功行，否则后续不会再补翻
+assert.strictEqual(D.deserialize("0|燕|", 1).size, 0);
+
 // serialize / deserialize 往返一致
 const rows = [
   { name: "燕", text: "甲\\n乙" },
@@ -59,4 +66,13 @@ const rows = [
 const back = D.deserialize(D.serialize(rows), rows.length);
 assert.deepStrictEqual(rows.map((r) => r.text), texts(back, rows.length));
 
-console.log("OK: 按行号归位——乱序/缺行/回显/含|/越界 全部正确处理");
+// DeepSeek V4 Pro thinking 的预算在任何 API 调用前校验
+assert.throws(
+  () => validateMaxTokens("deepseek-v4-pro", 65535),
+  FatalTranslationError,
+);
+assert.doesNotThrow(() => validateMaxTokens("deepseek-v4-pro", 65536));
+assert.doesNotThrow(() => validateMaxTokens("another-model", 12288));
+assert.throws(() => validateMaxTokens("another-model", Number.NaN), FatalTranslationError);
+
+console.log("OK: 行号归位、空译文拒绝与 MAX_TOKENS 预检全部通过");

@@ -34,6 +34,8 @@ ROOT = Path(__file__).resolve().parents[1]
 VENDOR_SRC = ROOT / "tools/vendor"
 PRETRANS_DIR = ROOT / "GakumasPreTranslation"
 YARN = shutil.which("yarn.cmd") or shutil.which("yarn") or "yarn"
+DEFAULT_MAX_TOKENS = 12288
+DEEPSEEK_V4_PRO_MIN_MAX_TOKENS = 65536
 
 
 def run(cmd, **kw):
@@ -43,6 +45,68 @@ def run(cmd, **kw):
 
 def out(cmd):
     return run(cmd, capture_output=True).stdout
+
+
+def required_max_tokens(model):
+    """返回当前模型在本管线中的安全输出预算下限。"""
+    if "deepseek-v4-pro" in (model or "").lower():
+        return DEEPSEEK_V4_PRO_MIN_MAX_TOKENS
+    return DEFAULT_MAX_TOKENS
+
+
+def validated_max_tokens():
+    """在任何付费请求前验证 MAX_TOKENS，避免旧 Secret 静默覆盖代码默认值。"""
+    model = os.environ.get("MODEL", "")
+    minimum = required_max_tokens(model)
+    raw = os.environ.get("MAX_TOKENS", str(minimum)).strip()
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise SystemExit(f"MAX_TOKENS 必须是正整数，当前值: {raw!r}") from exc
+    if value < minimum:
+        reason = (
+            "DeepSeek V4 Pro thinking 的推理与最终译文共用输出预算"
+            if minimum == DEEPSEEK_V4_PRO_MIN_MAX_TOKENS
+            else "同组合并请求需要容纳完整译文"
+        )
+        raise SystemExit(
+            f"MAX_TOKENS={value} 过小；{reason}，本管线要求至少 {minimum}。"
+            "请修改 GitHub Actions Secret MAX_TOKENS 后手动重跑。"
+        )
+    return str(value)
+
+
+def guard_repeated_scheduled_failure():
+    """当前分支上次运行失败时暂停新的自动首跑，防止同一批剧情逐小时重复扣费。
+
+    workflow_dispatch 和手动 Re-run（GITHUB_RUN_ATTEMPT > 1）都明确表示人工恢复，
+    因而绕过此闸门；它们成功后也会成为当前分支最新完成的运行，解除暂停。
+    """
+    if os.environ.get("GITHUB_EVENT_NAME") != "schedule":
+        return
+    try:
+        attempt = int(os.environ.get("GITHUB_RUN_ATTEMPT", "1"))
+    except ValueError:
+        attempt = 1
+    if attempt > 1:
+        return
+    repo = os.environ.get("GITHUB_REPOSITORY")
+    if not repo:
+        raise SystemExit("定时防重闸门缺少 GITHUB_REPOSITORY，已在付费请求前停止")
+    branch = os.environ.get("GITHUB_REF_NAME", "master")
+    endpoint = (
+        f"repos/{repo}/actions/workflows/campus-to-work.yml/runs"
+        f"?branch={branch}&status=completed&per_page=1"
+    )
+    payload = json.loads(out(["gh", "api", endpoint]))
+    runs = payload.get("workflow_runs", [])
+    if runs and runs[0].get("conclusion") == "failure":
+        previous = runs[0]
+        raise SystemExit(
+            "当前分支上一次翻译运行失败，已阻止本轮再次调用模型，避免同一批剧情重复扣费。"
+            f"上次运行: {previous.get('html_url', previous.get('id', 'unknown'))}。"
+            "修好配置后请手动 Re-run failed jobs，或用 workflow_dispatch 运行。"
+        )
 
 
 def clear_dir(path):
@@ -153,6 +217,14 @@ def overlay_vendor_files():
             continue
         shutil.copy2(src, dst)
         print(f"已覆盖翻译引擎文件: {name}")
+    # 上游脚本会 catch 单文件失败后继续翻剩余文件；配置错误时会把同一错误付费放大。
+    # 覆盖为 fail-fast 版本，第一份失败即让整个进程非零退出。
+    script_src = VENDOR_SRC / "translate-folder.ts"
+    script_dst = PRETRANS_DIR / "scripts" / "translate.ts"
+    if not script_src.exists():
+        raise SystemExit(f"缺少 vendor 文件: {script_src}")
+    shutil.copy2(script_src, script_dst)
+    print("已覆盖翻译入口脚本: translate-folder.ts")
 
 
 def ensure_pretranslation_env():
@@ -163,13 +235,14 @@ def ensure_pretranslation_env():
     missing = [k for k in required if not os.environ.get(k)]
     if missing:
         raise SystemExit("缺少环境变量: " + ", ".join(missing))
+    max_tokens = validated_max_tokens()
+    print(f"翻译配置自检通过: MAX_TOKENS={max_tokens}")
     lines = [
         f"OPENAI_API_KEY={os.environ['OPENAI_API_KEY']}",
         f"OPENAI_BASE_URL={os.environ['OPENAI_BASE_URL']}",
         f"MODEL={os.environ['MODEL']}",
         f"LOG_LEVEL={os.environ.get('LOG_LEVEL', 'info')}",
-        # 合并后的同组 CSV 一次输出 250 行，约需 10000+ token；4096 会被截断
-        f"MAX_TOKENS={os.environ.get('MAX_TOKENS', '12288')}",
+        f"MAX_TOKENS={max_tokens}",
     ]
     p.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -310,6 +383,8 @@ def main():
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
+    guard_repeated_scheduled_failure()
+
     remote = campus_file_list(args.campus_repo, args.campus_dir)
     known = known_files(args.work_repo, args.work_branch)
     prefixes = tuple(p.strip() for p in args.prefix.split(",") if p.strip())
@@ -343,18 +418,28 @@ def main():
             ensure_pretranslation_repo()
             ensure_pretranslation_env()
             manifest = prepare_translate_input()
-            run([YARN, "--cwd", str(PRETRANS_DIR), "translate:folder"], env={
-                **os.environ,
-                # 翻译记忆只读 csv_data（人工实装译文），机翻不回写，不自我污染
-                "TM_DIR": str(ROOT / "csv_data"),
-                "DEAR_SUMMARY_FILE": str(VENDOR_SRC / "dear-summaries.json"),
-                # 合并后的同组 CSV 必须放得进一次请求，否则又被切开等于白合并
-                "MAX_LINES_PER_REQUEST": os.environ.get("MAX_LINES_PER_REQUEST", "250"),
-                "MAX_TOKENS": os.environ.get("MAX_TOKENS", "12288"),
-            })
+            max_tokens = validated_max_tokens()
+            translation_error = None
+            try:
+                run([YARN, "--cwd", str(PRETRANS_DIR), "translate:folder"], env={
+                    **os.environ,
+                    # 翻译记忆只读 csv_data（人工实装译文），机翻不回写，不自我污染
+                    "TM_DIR": str(ROOT / "csv_data"),
+                    "DEAR_SUMMARY_FILE": str(VENDOR_SRC / "dear-summaries.json"),
+                    # 合并后的同组 CSV 必须放得进一次请求，否则又被切开等于白合并
+                    "MAX_LINES_PER_REQUEST": os.environ.get("MAX_LINES_PER_REQUEST", "250"),
+                    "MAX_TOKENS": max_tokens,
+                })
+            except subprocess.CalledProcessError as exc:
+                # fail-fast 会留下此前已经完整写出的 CSV。先把这些成果播种，
+                # 再让本轮失败；否则人工恢复时还会为已成功文件重复付费。
+                translation_error = exc
+                print("!! 翻译引擎已停止；正在保存失败前已完成的译文")
 
             stories = restore_csvs(manifest)
             if not stories:
+                if translation_error:
+                    raise SystemExit("翻译在首个文件失败，没有生成可播种的 CSV") from translation_error
                 raise SystemExit("没有生成可播种的 CSV")
             run([
                 sys.executable, str(ROOT / "tools/seed_work_repo.py"),
@@ -364,6 +449,11 @@ def main():
                 "--push", "--issues",
                 "--raw-dir", str(Path.cwd() / "todo/untranslated/txt"),
             ], cwd=str(ROOT))
+            if translation_error:
+                raise SystemExit(
+                    f"翻译中途失败；已先保存 {len(stories)} 个完成剧情组，"
+                    "剩余文件需人工恢复后再翻"
+                ) from translation_error
         finally:
             os.chdir(old_cwd)
 
