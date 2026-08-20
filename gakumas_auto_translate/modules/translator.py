@@ -2,17 +2,13 @@
 翻译模块，处理翻译相关功能
 """
 
-import json
 import os
 import re
 import shutil
 from pathlib import Path
 
-from .utils import GROUP_MANIFEST, merge_groups
-from .vendor_sync import sync_vendor_files
-
-# 同组合并后单次请求最多 250 行。DeepSeek V4 Pro 的 thinking 与最终译文
-# 共用 max_tokens，因此需要比普通非思考模型更大的预算。
+# 单次请求最多 250 行。DeepSeek V4 Pro 的 thinking 与最终译文共用
+# max_tokens，因此需要比普通非思考模型更大的预算。
 DEFAULT_MIN_MAX_TOKENS = 12288
 DEEPSEEK_V4_PRO_MIN_MAX_TOKENS = 65536
 
@@ -41,7 +37,7 @@ def ensure_engine_settings(env_path, summary_path=None):
             text.rstrip("\n") + "\n" + line + "\n"
         changed = True
         print(f"已把 .env 的 MAX_TOKENS 从 {current or '(未设置)'} 调高到 {minimum}"
-              f"——当前模型的思考与同组合并译文需要更大的完整输出预算")
+              f"——当前模型的思考与最终译文需要更大的完整输出预算")
 
     summary_match = re.search(r"^DEAR_SUMMARY_FILE=(.*)$", text, re.M)
     if summary_path and (not summary_match or not summary_match.group(1).strip()):
@@ -71,12 +67,7 @@ def translate_csv_files():
         print("或手动克隆项目到当前目录")
         return False
 
-    try:
-        repository_root = Path(__file__).resolve().parents[2]
-        sync_vendor_files(repository_root, Path(gakumas_dir).resolve())
-    except (OSError, ValueError) as error:
-        print(f"同步翻译引擎失败: {error}")
-        return False
+    repository_root = Path(__file__).resolve().parents[2]
 
     # 检查.env文件是否存在
     env_path = os.path.join(gakumas_dir, ".env")
@@ -130,20 +121,13 @@ def translate_csv_files():
         print("请先执行选项2生成预处理文件")
         return False
 
-    # 执行文件复制；cidol/csprt 的同组段落在此拼成一个 CSV 一次翻完，
-    # 否则后段看不到前段，跨段剧情会断——与自动管线共用同一份合并实现。
+    # 本地流程保持逐文件复制，不在菜单 3 合并同组 CSV。
     print("正在复制翻译文件...")
-    manifest = merge_groups(
-        [os.path.join(source_dir, f) for f in csv_files], target_dir)
-    for filename in sorted(os.listdir(target_dir)):
+    for filename in csv_files:
+        src = os.path.join(source_dir, filename)
+        dst = os.path.join(target_dir, filename)
+        shutil.copy2(src, dst)
         print(f"已复制: {filename}")
-
-    # 台账要落盘：菜单3 和菜单4 是两次独立调用，内存里传不过去
-    manifest_path = os.path.join("./todo/untranslated", GROUP_MANIFEST)
-    with open(manifest_path, "w", encoding="utf-8") as f:
-        json.dump(manifest, f, ensure_ascii=False, indent=1)
-    if manifest:
-        print(f"同组合并 {len(manifest)} 组，台账: {manifest_path}")
 
     # 输出后续指引
     print("\n请手动执行以下操作：")

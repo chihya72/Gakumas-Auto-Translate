@@ -152,12 +152,12 @@ AI 机翻不再孤立翻译每一批对话。机制分两层：**角色卡与术
 |---|---|---|
 | `TM_DIR` | `../csv_data`（相对 GakumasPreTranslation） | 翻译记忆目录，只读历史译文；精确复用按人工优先、机翻回退选择来源 |
 | `TM_MAX_REF` | `40` | 参考行上限（event 的同组前文不受此限） |
-| `MAX_LINES_PER_REQUEST` | `250` | 单次请求行数上限。合并后的同组 CSV 必须放得下，否则又被切开等于白合并 |
+| `MAX_LINES_PER_REQUEST` | `250` | 自动管线合并后的同组 CSV 必须放得下，否则又被切开等于白合并 |
 | `MAX_TOKENS` | 普通模型 `12288`；DeepSeek V4 Pro thinking `65536` | thinking 的推理与最终译文共用预算；管线会在付费请求前校验 |
 | `DEAR_SUMMARY_FILE` | 不设 | dear 摘要路径；本地菜单指向 `tools/vendor/dear-summaries.json`，自动管线指向临时副本 |
 | `DEAR_SUMMARY_WRITE` | 不设 | 只有自动管线临时副本设为 `1`；本地翻译不会回写正式摘要 |
 
-对应的实现位于 `tools/vendor/`。运行 `python tools/sync_vendor.py`，或启动本地菜单/自动管线时，
+对应的实现位于 `tools/vendor/`。运行 `python tools/sync_vendor.py` 或启动自动管线时，
 会按 SHA-256 只同步内容变化的引擎文件到 `GakumasPreTranslation/src/`。
 `dear-summaries.json` 是正式状态，不同步到上游 `src/`；自动机翻只写临时摘要副本。
 

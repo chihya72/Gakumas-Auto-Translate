@@ -266,7 +266,6 @@ gakumas-translation-work/
 | 1.3 | 建工作仓库 `gakumas-translation-work` + 5 label + 播种测试批 | ✅ | public；用户自建空仓，已 seed amao-3-000/001/002 共3篇+3 issue，raw 200 |
 | 1.4 | 成员加为工作仓库 collaborator | ⬜ 🔒 | 你在 GitHub 邀请 |
 | 1.5 | run.py 检测新剧情时调 seed_work_repo（--push --issues） | ⬜ | 扩 checker.py，接现有菜单 |
-| 1.6 | 收割脚本 harvest_work_repo.py + run.py 菜单7 | ✅ | 两轨完成的closed issue→下载CSV到todo/translated/csv→打"已入库"标签→接菜单4/5 |
 | 1.7 | ~~网页端一键入库~~ | ✅ 废弃 | data-pm 只能存放符合 `\n` 换行数量要求的 CSV，网页端不入库 |
 | 1.8 | **网页端下载成品CSV/纯中文TXT** | ✅ B16 | 已完成下载统一放历史页，主页只显示活跃任务 |
 | 1.9 | **上游接 campus 权威源** | ✅ B13 | 原始txt源=DreamGallery/Campus-adv-txts/Resource；viewer fetchRawTxt campus优先+工作仓库raw/兜底 |
