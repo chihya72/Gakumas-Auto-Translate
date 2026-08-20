@@ -20,6 +20,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from gakumas_auto_translate.modules import preprocessor
 from gakumas_auto_translate.modules.utils import merge_groups, split_merged
+from gakumas_auto_translate.modules.vendor_sync import sync_vendor_files
 
 CAMPUS_REPO = "DreamGallery/Campus-adv-txts"
 CAMPUS_DIR = "Resource"
@@ -206,17 +207,7 @@ def ensure_pretranslation_repo():
 def overlay_vendor_files():
     """用本仓库 tools/vendor 下的翻译引擎文件覆盖 GakumasPreTranslation，
     使新克隆/CI 环境也具备翻译记忆（TM）能力。"""
-    # dear-summaries.json 不覆盖：它是可写状态，由引擎按 DEAR_SUMMARY_FILE
-    # 直接读写本仓库那一份，覆盖到临时 clone 里翻完就丢了
-    for name in ("tm.ts", "translate.ts", "prompts.ts", "story-index.json",
-                 "character-cards.json", "glossary.json"):
-        src = VENDOR_SRC / name
-        dst = PRETRANS_DIR / "src" / name
-        if not src.exists():
-            print(f"!! 缺少 vendor 文件: {src}")
-            continue
-        shutil.copy2(src, dst)
-        print(f"已覆盖翻译引擎文件: {name}")
+    sync_vendor_files(ROOT, PRETRANS_DIR)
     # 上游脚本会 catch 单文件失败后继续翻剩余文件；配置错误时会把同一错误付费放大。
     # 覆盖为 fail-fast 版本，第一份失败即让整个进程非零退出。
     script_src = VENDOR_SRC / "translate-folder.ts"
@@ -418,6 +409,14 @@ def main():
             ensure_pretranslation_repo()
             ensure_pretranslation_env()
             manifest = prepare_translate_input()
+            # 机翻摘要只服务本轮内连续的新 Dear 话数。长期摘要必须由工作仓
+            # translated/proofread 人工层重建，不能让机翻状态写回 canonical 文件。
+            runtime_summary = Path(tmp) / "dear-summaries.runtime.json"
+            canonical_summary = VENDOR_SRC / "dear-summaries.json"
+            if canonical_summary.exists():
+                shutil.copy2(canonical_summary, runtime_summary)
+            else:
+                runtime_summary.write_text("{}\n", encoding="utf-8")
             max_tokens = validated_max_tokens()
             translation_error = None
             try:
@@ -425,7 +424,8 @@ def main():
                     **os.environ,
                     # 翻译记忆只读 csv_data（人工实装译文），机翻不回写，不自我污染
                     "TM_DIR": str(ROOT / "csv_data"),
-                    "DEAR_SUMMARY_FILE": str(VENDOR_SRC / "dear-summaries.json"),
+                    "DEAR_SUMMARY_FILE": str(runtime_summary),
+                    "DEAR_SUMMARY_WRITE": "1",
                     # 合并后的同组 CSV 必须放得进一次请求，否则又被切开等于白合并
                     "MAX_LINES_PER_REQUEST": os.environ.get("MAX_LINES_PER_REQUEST", "250"),
                     "MAX_TOKENS": max_tokens,

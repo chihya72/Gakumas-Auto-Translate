@@ -1,0 +1,120 @@
+name: Update Dear Summaries
+
+on:
+  workflow_dispatch:
+    inputs:
+      chars:
+        description: "可选：只重建这些角色码，逗号分隔"
+        required: false
+        default: ""
+      reset:
+        description: "忽略已有检查点，从链首重建（仍禁止摘要回退）"
+        type: boolean
+        required: false
+        default: false
+  repository_dispatch:
+    types: [dear-translation-updated]
+  schedule:
+    # 工作仓也可在人工译文合并后发 repository_dispatch；定时轮询是兜底。
+    - cron: "37 */6 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: dear-summary-update
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.PIPELINE_PAT }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
+      MODEL: ${{ secrets.MODEL }}
+      # DeepSeek V4 Pro thinking 需要同时容纳推理与摘要输出。
+      MAX_TOKENS: ${{ secrets.MAX_TOKENS }}
+      LOG_LEVEL: info
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Clone engines and workbench
+        run: |
+          $pretransDir = Join-Path $env:GITHUB_WORKSPACE 'GakumasPreTranslation'
+          $workRepoDir = Join-Path $env:RUNNER_TEMP 'gakumas-translation-work'
+          [string[]]$pretransArgs = @('clone', '--depth', '1', 'https://github.com/imas-tools/GakumasPreTranslation.git', $pretransDir)
+          & git @pretransArgs
+          if ($LASTEXITCODE -ne 0) { throw "clone GakumasPreTranslation failed: $LASTEXITCODE" }
+          [string[]]$workArgs = @('repo', 'clone', 'chihya72/gakumas-translation-work', $workRepoDir, '--', '--depth', '1')
+          & gh @workArgs
+          if ($LASTEXITCODE -ne 0) { throw "clone workbench failed: $LASTEXITCODE" }
+          "WORK_REPO_DIR=$workRepoDir" >> $env:GITHUB_ENV
+
+      - name: Install and sync engine
+        run: |
+          $pretransDir = Join-Path $env:GITHUB_WORKSPACE 'GakumasPreTranslation'
+          [string[]]$yarnArgs = @('--cwd', $pretransDir, 'install', '--frozen-lockfile')
+          & yarn @yarnArgs
+          if ($LASTEXITCODE -ne 0) { throw "yarn install failed: $LASTEXITCODE" }
+          [string[]]$syncArgs = @('tools/sync_vendor.py')
+          & python @syncArgs
+          if ($LASTEXITCODE -ne 0) { throw "vendor sync failed: $LASTEXITCODE" }
+
+      - name: Rebuild changed Dear summaries
+        env:
+          TM_DIR: ${{ github.workspace }}/csv_data
+          DEAR_SUMMARY_FILE: ${{ github.workspace }}/tools/vendor/dear-summaries.json
+        run: |
+          $pretransDir = Join-Path $env:GITHUB_WORKSPACE 'GakumasPreTranslation'
+          Push-Location -LiteralPath $pretransDir
+          try {
+            [System.Collections.Generic.List[string]]$arguments = @('ts-node', 'src/build-dear-summaries.ts')
+            $chars = '${{ github.event.inputs.chars }}'
+            if ($chars) { $arguments.Add("--chars=$chars") }
+            if ('${{ github.event.inputs.reset }}' -eq 'true') { $arguments.Add('--reset') }
+            & npx @arguments
+            if ($LASTEXITCODE -ne 0) { throw "Dear summary rebuild failed: $LASTEXITCODE" }
+          } finally {
+            Pop-Location
+          }
+      - name: Commit summary checkpoints
+        run: |
+          [string[]]$configName = @('config', 'user.name', 'github-actions[bot]')
+          & git @configName
+          if ($LASTEXITCODE -ne 0) { throw "git config name failed: $LASTEXITCODE" }
+          [string[]]$configEmail = @('config', 'user.email', '41898282+github-actions[bot]@users.noreply.github.com')
+          & git @configEmail
+          if ($LASTEXITCODE -ne 0) { throw "git config email failed: $LASTEXITCODE" }
+          [string[]]$addArgs = @('add', 'tools/vendor/dear-summaries.json')
+          & git @addArgs
+          if ($LASTEXITCODE -ne 0) { throw "git add failed: $LASTEXITCODE" }
+          [string[]]$diffArgs = @('diff', '--cached', '--quiet')
+          & git @diffArgs
+          $diffCode = $LASTEXITCODE
+          if ($diffCode -eq 0) {
+            Write-Output 'No Dear summary changes'
+          } elseif ($diffCode -eq 1) {
+            [string[]]$commitArgs = @('commit', '-m', 'update Dear summary checkpoints')
+            & git @commitArgs
+            if ($LASTEXITCODE -ne 0) { throw "git commit failed: $LASTEXITCODE" }
+            [string[]]$pushArgs = @('push')
+            & git @pushArgs
+            if ($LASTEXITCODE -ne 0) { throw "git push failed: $LASTEXITCODE" }
+          } else {
+            throw "git diff failed: $diffCode"
+          }

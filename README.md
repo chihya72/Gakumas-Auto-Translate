@@ -134,13 +134,14 @@ AI 机翻不再孤立翻译每一批对话。机制分两层：**角色卡与术
 | cidol P卡剧情 | `cidol-<角色>-3-<话>/` | **同组 01~03 合并成一次请求**，模型看到完整起承转合 |
 | csprt S卡剧情 | `csprt-<批次>-<卡号>/` | **同组 01~03 合并成一次请求** |
 | event 活动剧情 | `event/<号>/` | 顺序翻译 + 同组前文按原顺序全量注入；**翻译前先抽词生成本活动临时术语表** |
-| dear 好感度剧情 | `dear/<角色>/<话>` | **滚动摘要 + 上一话全文**。摘要每翻完一话更新，存 `tools/vendor/dear-summaries.json` |
-| pstory 培养故事 | `pstory/<卡>/<角色>/` | 精确匹配套用，**仅复用人工译文** |
-| pevent 培养事件 | `pevent/<号>/<角色>/<事件>/` | 不注入剧情上下文 |
+| dear 好感度剧情 | `dear/<角色>/<话>` | **滚动摘要 + 上一话全文**；自动机翻只写临时副本，正式摘要由重建任务维护 |
+| pstory 培养故事 | `pstory/<卡>/<角色>/` | 严格整行精确复用；人工优先，机翻回退，同级多译法不复用 |
+| pevent 培养事件 | `pevent/<号>/<角色>/<事件>/` | 严格整行精确复用；不注入剧情上下文 |
 | other 其它剧情 | `live/` `unit/` `startup/` `tutorial/` … | 不注入剧情上下文 |
 
-通用机制：**精确复用** —— 与历史译文完全相同的句子直接复用旧译文（默认只复用人工译文），
-不再消耗 API。机翻不复用，否则一条错译会被无差别复制到所有匹配文件并永久固化。
+精确复用只对白名单中的 `pstory`/`pevent` 生效。匹配键包含剧情类型、行类型、说话人和完整原文，
+包括标点、换行及占位符；不做 trim、模糊匹配或子串匹配。人工译文优先，没有人工译文时才使用已标明模型的机翻；
+同一优先级有多个不同译法时安全跳过，交给模型重新判断。
 
 参考行以 `REF|` 前缀、术语以 `TERM|` 前缀注入，即使模型误回显也不会被当成译文；
 管线还会在还原阶段直接拒收含这些标记的译文。
@@ -149,15 +150,20 @@ AI 机翻不再孤立翻译每一批对话。机制分两层：**角色卡与术
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `TM_DIR` | `../csv_data`（相对 GakumasPreTranslation） | 翻译记忆目录，只读人工实装译文 |
-| `TM_PREFILL` | `human` | `human` 只复用人工译文；`all` 复用全部历史译文 |
+| `TM_DIR` | `../csv_data`（相对 GakumasPreTranslation） | 翻译记忆目录，只读历史译文；精确复用按人工优先、机翻回退选择来源 |
 | `TM_MAX_REF` | `40` | 参考行上限（event 的同组前文不受此限） |
 | `MAX_LINES_PER_REQUEST` | `250` | 单次请求行数上限。合并后的同组 CSV 必须放得下，否则又被切开等于白合并 |
 | `MAX_TOKENS` | 普通模型 `12288`；DeepSeek V4 Pro thinking `65536` | thinking 的推理与最终译文共用预算；管线会在付费请求前校验 |
-| `DEAR_SUMMARY_FILE` | 不设 | dear 滚动摘要文件路径；不设 = 不启用摘要 |
+| `DEAR_SUMMARY_FILE` | 不设 | dear 摘要路径；本地菜单指向 `tools/vendor/dear-summaries.json`，自动管线指向临时副本 |
+| `DEAR_SUMMARY_WRITE` | 不设 | 只有自动管线临时副本设为 `1`；本地翻译不会回写正式摘要 |
 
-对应的实现位于 `tools/vendor/`，本地 `GakumasPreTranslation/src/` 与自动化管线均使用同一份文件。
-`dear-summaries.json` 例外——它是可写状态，由引擎按 `DEAR_SUMMARY_FILE` 直接读写本仓库那一份。
+对应的实现位于 `tools/vendor/`。运行 `python tools/sync_vendor.py`，或启动本地菜单/自动管线时，
+会按 SHA-256 只同步内容变化的引擎文件到 `GakumasPreTranslation/src/`。
+`dear-summaries.json` 是正式状态，不同步到上游 `src/`；自动机翻只写临时摘要副本。
+
+`tools/vendor/build-dear-summaries.ts` 从 `proofread_csv > translated_csv > csv_data > ai_csv（需显式启用）`
+选择来源，同话分段合并，按输入哈希复用未受影响的检查点，并在缺话、跳话或摘要回退时失败关闭。
+`.github/workflows/update-dear-summaries.yml` 每 6 小时检查一次，也支持人工译文更新后的 repository dispatch。
 
 自动管线采用付费防重策略：单个文件完全无有效输出时不原样重试，部分成功时只补发缺失行；
 全局错误会停止剩余文件，并先把错误前已完成的剧情组播种到工作仓。若当前分支上一轮失败，

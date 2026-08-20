@@ -1,7 +1,7 @@
 import log from "loglevel";
 import axios from "axios";
 import path from "path";
-import { chinesePrompt } from "./prompts";
+import { chinesePrompt, dearSummaryPrompt, eventGlossaryPrompt } from "./prompts";
 import {
   CsvTextInfo,
   CsvDataLine,
@@ -14,9 +14,13 @@ import {
   getSharedTM,
   storyKeyFromName,
   classifyStory,
-  STORY_MODES,
+  storyPolicy,
   characterCardBlock,
+  characterMappings,
   glossaryBlock,
+  activeGlossary,
+  activeDearFixed,
+  exactReuseAllowed,
   summaryBlock,
   loadDearSummaries,
   saveDearSummary,
@@ -26,7 +30,6 @@ interface Dialogue {
   name: string;
   text: string;
 }
-
 export interface LLMConfig {
   apiKey: string;
   baseURL: string;
@@ -38,6 +41,7 @@ export class FatalTranslationError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "FatalTranslationError";
+    Object.setPrototypeOf(this, FatalTranslationError.prototype);
   }
 }
 
@@ -45,6 +49,7 @@ export class FatalApiError extends FatalTranslationError {
   constructor(message: string) {
     super(message);
     this.name = "FatalApiError";
+    Object.setPrototypeOf(this, FatalApiError.prototype);
   }
 }
 
@@ -110,10 +115,6 @@ function getTM(): TranslationMemory | undefined {
   return tm.size > 0 ? tm : undefined;
 }
 
-function prefillMode(): string {
-  return (process.env.TM_PREFILL || "human").toLowerCase();
-}
-
 /**
  * 单次请求的行数上限。cidol/csprt 在管线侧把同组 01~03 合并成一个 CSV，
  * 这里必须放得下整组，否则又被切开就等于白合并。
@@ -149,7 +150,7 @@ async function buildEventGlossary(
     texts.join("\n");
   const result: Record<string, string> = {};
   try {
-    const raw = await chat(prompt, config);
+    const raw = await chat(prompt, config, [], eventGlossaryPrompt);
     for (const line of raw.split("\n")) {
       const parts = line.split("|");
       if (parts.length === 3 && parts[0].trim() === "TERM") {
@@ -160,7 +161,6 @@ async function buildEventGlossary(
     }
     log.info(`event 抽词: ${group} 得到 ${Object.keys(result).length} 条`);
   } catch (e) {
-    if (e instanceof FatalTranslationError) throw e;
     // 抽词失败不该拖垮翻译——退回只用全局术语表
     log.warn(`event 抽词失败，跳过临时术语表: ${e.message}`);
   }
@@ -180,7 +180,12 @@ async function updateDearSummary(
   data: CsvDataLine[],
   config: LLMConfig,
 ): Promise<void> {
-  if (!process.env.DEAR_SUMMARY_FILE || !info.character || info.episode < 0) return;
+  if (
+    !process.env.DEAR_SUMMARY_FILE ||
+    process.env.DEAR_SUMMARY_WRITE !== "1" ||
+    !info.character ||
+    info.episode < 0
+  ) return;
   const prev = loadDearSummaries()[info.character];
   // 单话重跑不能把摘要打回更早的进度——那会静默丢掉中间几话的进展，
   // 而且下次翻新话时注入的是一份残缺摘要，不报错也查不出来。
@@ -190,6 +195,14 @@ async function updateDearSummary(
     log.warn(
       `dear 摘要已覆盖到第 ${prevEp} 话，跳过第 ${info.episode} 话的回写。` +
         `如需重建请先清空 ${info.character} 的条目。`,
+    );
+    return;
+  }
+  const firstEpisode = info.episode === 0 || info.episode === 1;
+  if ((prev && prevEp !== info.episode - 1) || (!prev && !firstEpisode)) {
+    log.warn(
+      `dear 摘要链不连续：现有覆盖到第 ${prevEp} 话，当前是第 ${info.episode} 话；` +
+        "拒绝跳话更新，请用历史重建脚本补齐中间话。",
     );
     return;
   }
@@ -205,9 +218,14 @@ async function updateDearSummary(
     "SUMMARY|<更新后的摘要全文，单行，不要换行>\n" +
     "FIXED|<项目名>|<已固定的译法>   （可有多行，没有则不输出）\n\n" +
     (prev?.summary ? `此前的摘要（覆盖到第 ${prev.through_episode} 话）：\n${prev.summary}\n\n` : "") +
+    (Object.keys(prev?.fixed || {}).length
+      ? `此前已固定的称呼：\n${Object.entries(prev!.fixed!)
+          .map(([jp, zh]) => `${jp}|${zh}`)
+          .join("\n")}\n\n`
+      : "") +
     `第 ${info.episode} 话的原文与译文（格式 说话人|原文|译文）：\n${body}`;
   try {
-    const raw = await chat(prompt, config);
+    const raw = await chat(prompt, config, [], dearSummaryPrompt);
     let summary = "";
     const fixed: Record<string, string> = {};
     for (const line of raw.split("\n")) {
@@ -225,7 +243,8 @@ async function updateDearSummary(
     saveDearSummary(info.character, {
       through_episode: info.episode,
       summary,
-      fixed: Object.keys(fixed).length ? fixed : prev?.fixed,
+      fixed: { ...(prev?.fixed || {}), ...fixed },
+      checkpoints: prev?.checkpoints,
     });
   } catch (e) {
     // 摘要更新失败不该让整篇翻译白跑——译文已经拿到了
@@ -245,7 +264,7 @@ export async function translateCsvString(
 
   const info = classifyStory(csvTextInfo.jsonUrl || "");
   extraGlossary =
-    STORY_MODES[info.type] === "sequential"
+    storyPolicy(info.type).context === "sequential"
       ? await buildEventGlossary(
           info.group,
           csvTextInfo.data.map((r) => r.text),
@@ -264,7 +283,7 @@ export async function translateCsvString(
     await Promise.all(csvTextInfos.map((info) => translateCsvTextInfo(info, config, 2)));
   }
   const merged = mergeCsvInfo(csvTextInfos);
-  if (STORY_MODES[info.type] === "summary") {
+  if (storyPolicy(info.type).context === "summary") {
     await updateDearSummary(info, merged.data, config);
   }
   return toCsvText(merged);
@@ -288,24 +307,28 @@ async function translateCsvTextInfo(
 ) {
   const data = csvTextInfo.data;
   const pending: CsvDataLine[] = [];
+  const story = storyKeyFromName(csvTextInfo.jsonUrl || "");
+  const exactTerms = activeGlossary(data.map((r) => r.text), extraGlossary);
 
-  // 重试时已成功归位的译文必须保留，只把缺失行再次发给模型。
-  // 旧逻辑会把整批原样重发，既覆盖成功行，又为相同内容重复付费。
-  const reuseAll = prefillMode() === "all";
-  for (const row of data) {
-    if (row.trans) continue;
-    if (tm) {
-      // 精确命中的行直接复用历史译文，其余交给 LLM。
-      // 只复用人工译文：机翻一旦错译进了库，"复用"不会再经过模型，
-      // 错误会被无差别复制到所有匹配文件上并永久固化。
-      const hit = tm.lookup(row.text);
-      if (hit && (reuseAll || hit.human)) {
+  if (tm) {
+    // 只有策略白名单内的 pstory/pevent 可以精确复用。命中键包含剧情类型、
+    // 行类型、说话人和完整原文；人工优先于机翻，同级歧义由 TM 判为未命中。
+    for (const row of data) {
+      if (row.trans) continue;
+      const hit = tm.lookupExact(story, row);
+      const explicitConstraints = {
+        ...characterMappings(row.name || ""),
+        ...exactTerms,
+      };
+      if (hit && exactReuseAllowed(row.text, hit.trans, explicitConstraints)) {
         row.trans = hit.trans;
       } else {
         pending.push(row);
       }
-    } else {
-      pending.push(row);
+    }
+  } else {
+    for (const row of data) {
+      if (!row.trans) pending.push(row);
     }
   }
 
@@ -316,13 +339,17 @@ async function translateCsvTextInfo(
 
   const names = new Set<string>();
   for (const row of pending) if (row.name) names.add(row.name);
-  const story = storyKeyFromName(csvTextInfo.jsonUrl || "");
+  const terms = activeGlossary(pending.map((r) => r.text), extraGlossary);
+  const termKeys = new Set(Object.keys(terms));
+  const fixed = activeDearFixed(story, termKeys);
+  const cardOverrides = new Set(Object.keys(terms).concat(Object.keys(fixed)));
 
-  // 上下文块顺序与提示词里声明的一致：术语表 → 角色卡 → 剧情摘要 → 参考行
+  // 约束优先级：术语表 > Dear 动态固定称呼 > 角色卡 > REF。
+  // summaryBlock 会先删除与术语表同键的低优先级 FIXED，避免把冲突交给模型猜。
   const context = [
     glossaryBlock(pending.map((r) => r.text), extraGlossary),
-    characterCardBlock(names),
-    summaryBlock(story),
+    summaryBlock(story, termKeys, fixed),
+    characterCardBlock(names, cardOverrides),
     tm ? tm.referenceBlock(story) : "",
   ].filter(Boolean);
 
@@ -331,7 +358,6 @@ async function translateCsvTextInfo(
   const translated = DialogueListDeser.deserialize(gptOutput, pending.length);
 
   // 一个有效行号都没有时，原样重试只会再次消耗同一份输入和思考 token。
-  // 这通常表示输出预算不足、返回格式完全错误或网关返回了非译文内容。
   if (translated.size === 0) {
     throw new Error(
       `模型响应未包含任何有效译文行（0/${pending.length}），已停止原样重试以避免重复扣费`,
@@ -356,7 +382,12 @@ async function translateCsvTextInfo(
         // 部分成功的译文立刻作为同文件前文，补翻缺失行时也能看到已有上下文。
         for (const row of pending) {
           if (row.trans) {
-            tm.add({ text: row.text, trans: row.trans, name: row.name || "", story });
+            tm.add({
+              text: row.text,
+              trans: row.trans,
+              name: row.name || "",
+              story,
+            });
           }
         }
       }
@@ -420,10 +451,22 @@ export const DialogueListDeser = {
   },
 };
 
+export function buildChatMessages(
+  userInput: string,
+  context: string[] = [],
+  systemPrompt: string = chinesePrompt,
+): Array<{ role: string; content: string }> {
+  const messages = [{ role: "system", content: systemPrompt }];
+  for (const block of context) messages.push({ role: "user", content: block });
+  messages.push({ role: "user", content: userInput });
+  return messages;
+}
+
 export async function chat(
   userInput: string,
   { apiKey, baseURL, model, max_tokens }: LLMConfig,
   context: string[] = [],
+  systemPrompt: string = chinesePrompt,
 ) {
   try {
     validateMaxTokens(model, max_tokens);
@@ -434,11 +477,7 @@ export async function chat(
         Authorization: `Bearer ${apiKey}`,
       },
     });
-    const messages: any[] = [{ role: "system", content: chinesePrompt }];
-    for (const block of context) {
-      messages.push({ role: "user", content: block });
-    }
-    messages.push({ role: "user", content: userInput });
+    const messages = buildChatMessages(userInput, context, systemPrompt);
     const deepSeekV4 = isDeepSeekV4(model);
     const requestBody: any = {
       model,
@@ -490,8 +529,7 @@ export async function chat(
     }
     if (finishReason === "length") {
       log.warn(
-        "API 输出被 max_tokens 截断；将保留已返回的有效行，并且只重试缺失行。" +
-          "若没有有效行则立即停止。",
+        "API 输出被 max_tokens 截断；将保留已返回的有效行，并且只重试缺失行。若没有有效行则立即停止。",
       );
     }
     log.debug(`Generated Text: ${generatedText}`);

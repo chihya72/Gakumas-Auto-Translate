@@ -6,8 +6,10 @@ import json
 import os
 import re
 import shutil
+from pathlib import Path
 
 from .utils import GROUP_MANIFEST, merge_groups
+from .vendor_sync import sync_vendor_files
 
 # 同组合并后单次请求最多 250 行。DeepSeek V4 Pro 的 thinking 与最终译文
 # 共用 max_tokens，因此需要比普通非思考模型更大的预算。
@@ -21,8 +23,8 @@ def required_max_tokens(model):
     return DEFAULT_MIN_MAX_TOKENS
 
 
-def ensure_max_tokens(env_path):
-    """.env 的 MAX_TOKENS 太小会截断合并请求的输出，就地调高并告知。"""
+def ensure_engine_settings(env_path, summary_path=None):
+    """补齐本地引擎需要的安全默认值，不覆盖用户显式配置。"""
     if not os.path.exists(env_path):
         return
     with open(env_path, "r", encoding="utf-8") as f:
@@ -32,15 +34,31 @@ def ensure_max_tokens(env_path):
     minimum = required_max_tokens(model)
     m = re.search(r"^MAX_TOKENS=(\d+)\s*$", text, re.M)
     current = int(m.group(1)) if m else 0
-    if current >= minimum:
-        return
-    line = f"MAX_TOKENS={minimum}"
-    text = re.sub(r"^MAX_TOKENS=.*$", line, text, flags=re.M) if m else \
-        text.rstrip("\n") + "\n" + line + "\n"
-    with open(env_path, "w", encoding="utf-8") as f:
-        f.write(text)
-    print(f"已把 .env 的 MAX_TOKENS 从 {current or '(未设置)'} 调高到 {minimum}"
-          f"——当前模型的思考与同组合并译文需要更大的完整输出预算")
+    changed = False
+    if current < minimum:
+        line = f"MAX_TOKENS={minimum}"
+        text = re.sub(r"^MAX_TOKENS=.*$", line, text, flags=re.M) if m else \
+            text.rstrip("\n") + "\n" + line + "\n"
+        changed = True
+        print(f"已把 .env 的 MAX_TOKENS 从 {current or '(未设置)'} 调高到 {minimum}"
+              f"——当前模型的思考与同组合并译文需要更大的完整输出预算")
+
+    summary_match = re.search(r"^DEAR_SUMMARY_FILE=(.*)$", text, re.M)
+    if summary_path and (not summary_match or not summary_match.group(1).strip()):
+        line = f"DEAR_SUMMARY_FILE={Path(summary_path).resolve().as_posix()}"
+        text = re.sub(r"^DEAR_SUMMARY_FILE=.*$", line, text, flags=re.M) \
+            if summary_match else text.rstrip("\n") + "\n" + line + "\n"
+        changed = True
+        print("已配置 Dear 长期摘要为只读上下文；机翻不会回写该文件")
+
+    if changed:
+        with open(env_path, "w", encoding="utf-8") as f:
+            f.write(text)
+
+
+# 保留旧函数名，供可能的外部调用兼容。
+def ensure_max_tokens(env_path):
+    ensure_engine_settings(env_path)
 
 def translate_csv_files():
     """处理CSV文件翻译流程"""
@@ -51,6 +69,13 @@ def translate_csv_files():
         print("未找到GakumasPreTranslation目录，请执行以下操作：")
         print("git clone https://github.com/imas-tools/GakumasPreTranslation.git")
         print("或手动克隆项目到当前目录")
+        return False
+
+    try:
+        repository_root = Path(__file__).resolve().parents[2]
+        sync_vendor_files(repository_root, Path(gakumas_dir).resolve())
+    except (OSError, ValueError) as error:
+        print(f"同步翻译引擎失败: {error}")
         return False
 
     # 检查.env文件是否存在
@@ -67,7 +92,10 @@ def translate_csv_files():
             print("错误：缺失.env.sample文件，请检查GakumasPreTranslation项目完整性")
             return False
 
-    ensure_max_tokens(env_path)
+    ensure_engine_settings(
+        env_path,
+        repository_root / "tools" / "vendor" / "dear-summaries.json",
+    )
 
     # 检查临时目录状态
     tmp_dirs = [
