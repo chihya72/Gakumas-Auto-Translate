@@ -213,10 +213,11 @@ async function updateDearSummary(
   const prompt =
     "你在维护一份偶像游戏好感度剧情的翻译辅助摘要，供翻译下一话时参考。\n" +
     "只记录对翻译有影响的内容：与制作人的关系走到哪个阶段、称呼或自称的变化及其触发点、" +
-    "已建立的重要设定。不要写剧情流水账，不要写人物性格评价。摘要控制在 400 字以内。\n\n" +
+    "已建立的重要设定。不要写剧情流水账，不要写人物性格评价。摘要控制在 600 字以内。\n\n" +
     "输出格式（只输出这些行，不要任何说明文字）：\n" +
     "SUMMARY|<更新后的摘要全文，单行，不要换行>\n" +
-    "FIXED|<项目名>|<已固定的译法>   （可有多行，没有则不输出）\n\n" +
+    "FIXED|<项目名>|<已固定的译法>   （可有多行，没有则不输出）\n" +
+    "本次不需要 SEGMENT 行。\n\n" +
     (prev?.summary ? `此前的摘要（覆盖到第 ${prev.through_episode} 话）：\n${prev.summary}\n\n` : "") +
     (Object.keys(prev?.fixed || {}).length
       ? `此前已固定的称呼：\n${Object.entries(prev!.fixed!)

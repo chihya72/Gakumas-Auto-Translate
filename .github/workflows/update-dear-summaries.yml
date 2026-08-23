@@ -92,7 +92,10 @@ jobs:
           } finally {
             Pop-Location
           }
+      # 检查点是逐块写盘的，断点续跑全靠它。重建中途失败（余额、超时、单个角色报错）
+      # 时这一步被 skip，已经付过钱的那几十块就跟着 runner 一起没了——所以无条件执行。
       - name: Commit summary checkpoints
+        if: always()
         run: |
           [string[]]$configName = @('config', 'user.name', 'github-actions[bot]')
           & git @configName
@@ -112,9 +115,20 @@ jobs:
             [string[]]$commitArgs = @('commit', '-m', 'update Dear summary checkpoints')
             & git @commitArgs
             if ($LASTEXITCODE -ne 0) { throw "git commit failed: $LASTEXITCODE" }
-            [string[]]$pushArgs = @('push')
-            & git @pushArgs
-            if ($LASTEXITCODE -ne 0) { throw "git push failed: $LASTEXITCODE" }
+            # 重建要跑几小时，期间 master 很可能已经前进；直接 push 会被拒，而 runner 一
+            # 销毁这几小时的成果就彻底没了。先 rebase 再推，并重试——这个文件只有本任务
+            # 在改，rebase 不会有冲突。
+            for ($attempt = 1; $attempt -le 3; $attempt++) {
+              [string[]]$rebaseArgs = @('pull', '--rebase', 'origin', 'master')
+              & git @rebaseArgs
+              if ($LASTEXITCODE -ne 0) { throw "git pull --rebase failed: $LASTEXITCODE" }
+              [string[]]$pushArgs = @('push', 'origin', 'HEAD:master')
+              & git @pushArgs
+              if ($LASTEXITCODE -eq 0) { break }
+              if ($attempt -eq 3) { throw "git push failed after 3 attempts" }
+              Write-Output "push 被拒（第 $attempt/3 次），5s 后重新 rebase 再推"
+              Start-Sleep -Seconds 5
+            }
           } else {
             throw "git diff failed: $diffCode"
           }

@@ -33,7 +33,7 @@ export interface StoryInfo {
  * 剧情策略。角色卡与术语表对所有类型一律加载，不受此处控制。
  * - group-merge  同组段落在管线侧合并成一次请求，引擎内不再注入 REF
  * - sequential   顺序翻译，同组已译段落按原顺序全量注入
- * - summary      滚动摘要 + 上一话全文
+ * - summary      只注入滚动摘要；不再搭上一话全文
  * - none         不注入任何剧情上下文
  */
 export type ContextMode = "group-merge" | "sequential" | "summary" | "none";
@@ -85,7 +85,10 @@ export interface DearSummaryCheckpoint {
   from_episode: number;
   through_episode: number;
   input_hash: string;
+  /** 到这一块为止的【累积】摘要快照，不是这几话的摘要 */
   summary: string;
+  /** 只讲 from_episode~through_episode 这几话的剧情；串起来就是一条完整剧情线 */
+  segment?: string;
   fixed?: Record<string, string>;
 }
 
@@ -244,6 +247,22 @@ export function summaryBlock(
     return "";
   }
   const parts = [`剧情摘要（本角色此前进展）\n\n${entry.summary}`];
+  // 累积摘要被反复重写，早期细节必然被压掉；分段剧情线把每几话的
+  // 原始梗概原样留下来，两者互补。旧检查点没有 segment，自然就不注入。
+  const timeline = (entry.checkpoints || [])
+    .filter((checkpoint) => checkpoint.segment)
+    .map((checkpoint) => {
+      const span = checkpoint.from_episode === checkpoint.through_episode
+        ? `第 ${checkpoint.from_episode} 话`
+        : `第 ${checkpoint.from_episode}~${checkpoint.through_episode} 话`;
+      return `【${span}】${checkpoint.segment}`;
+    });
+  if (timeline.length > 0) {
+    parts.push(
+      "分段剧情线（按话数顺序，供理解前情，不是翻译对象）\n" +
+        timeline.join("\n"),
+    );
+  }
   const fixed = Object.entries(resolvedFixed || activeDearFixed(storyKey, higherPriorityTerms));
   if (fixed.length > 0) {
     parts.push(
@@ -575,7 +594,6 @@ export class TranslationMemory {
   private exact = new Map<string, Map<string, TMEntry>>();
   private stories = new Map<string, TMEntry[]>();
   private chars = new Map<string, TMEntry[]>();
-  private byChar = new Map<string, TMEntry[]>();
   private loaded = false;
   private total = 0;
 
@@ -648,7 +666,6 @@ export class TranslationMemory {
         }
         pushEntry(this.stories, info.group, entry);
         if (entry.name) pushEntry(this.chars, entry.name, entry);
-        if (info.character) pushEntry(this.byChar, info.character, entry);
         this.total++;
       }
     }
@@ -691,7 +708,6 @@ export class TranslationMemory {
     this.total++;
     pushEntry(this.stories, full.story, full);
     if (full.name) pushEntry(this.chars, full.name, full);
-    if (full.character) pushEntry(this.byChar, full.character, full);
   }
 
   /** 参考策略入口 */
@@ -701,45 +717,23 @@ export class TranslationMemory {
       case "sequential":
         // event 五段之间靠这个衔接，截断会让后段看不全前段——不设上限
         return this.sequentialExamples(info, Number.MAX_SAFE_INTEGER);
-      case "summary":
-        // 承诺的是“上一话全文”，不能复用一般 REF 的 40 行上限。
-        return this.previousEpisode(info, Number.MAX_SAFE_INTEGER);
       default:
-        return []; // group-merge / none：不注入 REF
+        // summary（dear）靠滚动摘要承载历史，不再重复注入上一话全文；
+        // group-merge / none 本来就不注入 REF。
+        return [];
     }
   }
 
   /** 生成注入提示词的参考块；REF| 前缀使其即使被模型回显也不会被解析成译文 */
   referenceBlock(storyKey: string): string {
     const info = classifyStory(storyKey);
-    const mode = storyPolicy(info.type).context;
-    if (mode !== "sequential" && mode !== "summary") return "";
+    if (storyPolicy(info.type).context !== "sequential") return "";
     const ex = this.examples(storyKey);
     if (ex.length === 0) return "";
     const header =
-      mode === "sequential"
-        ? "以下是同一剧情此前段落的翻译，按剧情顺序排列，请保持剧情衔接、人名和术语的一致。"
-        : "以下是该角色上一话好感度剧情的全文，请保持人设、称呼和关系进展的连贯一致。";
+      "以下是同一剧情此前段落的翻译，按剧情顺序排列，请保持剧情衔接、人名和术语的一致。";
     const lines = ex.map((e, i) => `REF|${i}|${e.name}|${e.text}|${e.trans}`).join("\n");
     return `${header}\n这些行只是参考，不要翻译或输出它们。\n\n${lines}`;
-  }
-
-  /** summary（dear）：只取上一话全文，按原顺序。更早的历史由滚动摘要承载。 */
-  private previousEpisode(info: StoryInfo, max: number): TMEntry[] {
-    if (info.type !== "dear" || info.episode < 0) return [];
-    const previous = (this.byChar.get(info.character) || []).filter(
-      (e) => e.type === "dear" && e.episode >= 0 && e.episode < info.episode,
-    );
-    if (previous.length === 0) return [];
-    const lastEp = info.episode - 1;
-    if (!previous.some((entry) => entry.episode === lastEp)) {
-      log.warn(`dear 第 ${info.episode} 话缺少第 ${lastEp} 话全文，拒绝注入更早话数代替`);
-      return [];
-    }
-    const seen = new Set<string>();
-    const out: TMEntry[] = [];
-    this.pick(previous.filter((e) => e.episode === lastEp), out, seen, max);
-    return out;
   }
 
   private pick(

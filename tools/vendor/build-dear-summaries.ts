@@ -249,20 +249,25 @@ function buildPrompt(prev: string, prevFixed: Record<string, string>, block: Epi
   );
 }
 
-function parseReply(raw: string): { summary: string; fixed: Record<string, string> } {
+function parseReply(
+  raw: string,
+): { summary: string; segment: string; fixed: Record<string, string> } {
   let summary = "";
+  let segment = "";
   const fixed: Record<string, string> = {};
   for (const line of raw.split("\n")) {
     const parts = line.split("|");
     if (parts[0].trim() === "SUMMARY" && parts.length >= 2) {
       summary = parts.slice(1).join("|").trim();
+    } else if (parts[0].trim() === "SEGMENT" && parts.length >= 2) {
+      segment = parts.slice(1).join("|").trim();
     } else if (parts[0].trim() === "FIXED" && parts.length >= 3) {
       const key = parts[1].trim();
       const value = parts.slice(2).join("|").trim();
       if (key && value) fixed[key] = value;
     }
   }
-  return { summary, fixed };
+  return { summary, segment, fixed };
 }
 
 function checkpointMatches(checkpoint: DearSummaryCheckpoint, block: EpisodeChunk): boolean {
@@ -326,6 +331,10 @@ async function rebuildCharacter(
     if (!reply.summary) {
       throw new Error(`${character} 第 ${block.from}~${block.through} 话未返回 SUMMARY`);
     }
+    // SEGMENT 丢了不致命——摘要链才是主体，不值得为它作废一整轮重建。
+    if (!reply.segment) {
+      log.warn(`${character} 第 ${block.from}~${block.through} 话未返回 SEGMENT，剧情线缺这一段`);
+    }
     summary = reply.summary;
     fixed = { ...fixed, ...reply.fixed };
     checkpoints.push({
@@ -333,6 +342,7 @@ async function rebuildCharacter(
       through_episode: block.through,
       input_hash: block.inputHash,
       summary,
+      segment: reply.segment || undefined,
       fixed: { ...fixed },
     });
 
@@ -345,7 +355,10 @@ async function rebuildCharacter(
         checkpoints: checkpoints.map((checkpoint) => ({ ...checkpoint })),
       });
     }
-    log.info(`  ${character} -> 第 ${block.through} 话（摘要 ${summary.length} 字）`);
+    log.info(
+      `  ${character} -> 第 ${block.through} 话（摘要 ${summary.length} 字，` +
+        `分段 ${reply.segment.length} 字）`,
+    );
   }
 }
 
