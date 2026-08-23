@@ -16,9 +16,13 @@ SYNCED_VENDOR_FILES = (
     "prompts.ts",
     "story-index.json",
     "character-cards.json",
-    "glossary.json",
     "build-dear-summaries.ts",
 )
+
+# 术语表只留一份：仓库根的 name_dictionary.json（本地菜单的人名替换用的
+# 也是它），避免线上线下两套译名分叉。引擎侧保留 glossary.json 这个文件名，
+# 不用改 tm.ts 的 import。
+RENAMED_VENDOR_FILES = {"glossary.json": "name_dictionary.json"}
 
 
 def _sha256(path: Path) -> str:
@@ -41,13 +45,15 @@ def sync_vendor_files(
     if not destination_dir.is_dir():
         raise FileNotFoundError(f"GakumasPreTranslation/src 不存在: {destination_dir}")
 
-    missing = [name for name in SYNCED_VENDOR_FILES if not (vendor_dir / name).is_file()]
+    sources = {name: vendor_dir / name for name in SYNCED_VENDOR_FILES}
+    for name, origin in RENAMED_VENDOR_FILES.items():
+        sources[name] = repository_root / origin
+    missing = [str(path) for path in sources.values() if not path.is_file()]
     if missing:
         raise FileNotFoundError("缺少 vendor 文件: " + ", ".join(missing))
 
     changed: list[str] = []
-    for name in SYNCED_VENDOR_FILES:
-        source = vendor_dir / name
+    for name, source in sources.items():
         destination = destination_dir / name
         if destination.is_file() and _sha256(source) == _sha256(destination):
             continue

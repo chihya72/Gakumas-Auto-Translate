@@ -346,12 +346,22 @@ async function translateCsvTextInfo(
 
   // 约束优先级：术语表 > Dear 动态固定称呼 > 角色卡 > REF。
   // summaryBlock 会先删除与术语表同键的低优先级 FIXED，避免把冲突交给模型猜。
-  const context = [
+  const reference = tm ? tm.referenceBlock(story) : "";
+  const constraints = [
     glossaryBlock(pending.map((r) => r.text), extraGlossary),
     summaryBlock(story, termKeys, fixed),
     characterCardBlock(names, cardOverrides),
-    tm ? tm.referenceBlock(story) : "",
-  ].filter(Boolean);
+  ];
+  // event 顺序翻译时，参考行是同组各段之间唯一「只在末尾追加」的块（第 3 段的
+  // 参考行 = 第 2 段的 + 第 2 段本身）。放到最前面，后面几段的请求就共享一段
+  // 很长的相同前缀，能吃到 API 的上下文缓存折扣。而术语表/角色卡是每段都
+  // 不一样的（只注入本段命中的词与出场角色），放前面等于开头第一句就分叉。
+  // 其余类型要么没有参考行，要么一个文件只发一次请求，顺序无所谓，保持原样。
+  const referenceFirst =
+    storyPolicy(classifyStory(story).type).context === "sequential";
+  const context = (
+    referenceFirst ? [reference, ...constraints] : [...constraints, reference]
+  ).filter(Boolean);
 
   const userInput = DialogueListDeser.serialize(pending);
   const gptOutput = await chat(userInput, config, context);

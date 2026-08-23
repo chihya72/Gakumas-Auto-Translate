@@ -31,7 +31,8 @@ jobs:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
       MODEL: ${{ secrets.MODEL }}
-      # V4 Pro thinking 同时消耗推理与最终译文预算；管线会在发请求前校验至少 65536。
+      # V4 Pro thinking 同时消耗推理与最终译文预算；引擎在发 HTTP 请求前校验至少 65536。
+      # OPENAI_API_KEY / OPENAI_BASE_URL / MODEL 缺失由 ensure_pretranslation_env 报错，这里不再查一遍。
       MAX_TOKENS: ${{ secrets.MAX_TOKENS }}
       LOG_LEVEL: info
     steps:
@@ -59,9 +60,6 @@ jobs:
             echo "::error::PIPELINE_PAT 对 gakumas-translation-work 没有写权限（permissions.push=$PUSH_OK）。请检查 PAT 的仓库范围/scope。"
             exit 1
           fi
-          test -n "$OPENAI_API_KEY" || (echo "Missing secret OPENAI_API_KEY" && exit 1)
-          test -n "$OPENAI_BASE_URL" || (echo "Missing secret OPENAI_BASE_URL" && exit 1)
-          test -n "$MODEL" || (echo "Missing secret MODEL" && exit 1)
           PREFIX="${{ github.event.inputs.prefix }}"
           LIMIT="${{ github.event.inputs.limit }}"
           # 默认白名单=已翻译范围前缀，排除 pstep/pweek/gasha/produce_lesson 等系统文本积压

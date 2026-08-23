@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.request
 from pathlib import Path
 
@@ -36,7 +37,11 @@ VENDOR_SRC = ROOT / "tools/vendor"
 PRETRANS_DIR = ROOT / "GakumasPreTranslation"
 YARN = shutil.which("yarn.cmd") or shutil.which("yarn") or "yarn"
 DEFAULT_MAX_TOKENS = 12288
-DEEPSEEK_V4_PRO_MIN_MAX_TOKENS = 65536
+# 校验不过的文件最多重翻几轮
+RETRY_ROUNDS = 3
+# 网络瞬时故障的重试次数与首次退避秒数
+NET_RETRIES = 3
+NET_BACKOFF = 5
 
 
 def run(cmd, **kw):
@@ -44,70 +49,32 @@ def run(cmd, **kw):
     return subprocess.run(cmd, check=True, text=True, encoding="utf-8", **kw)
 
 
-def out(cmd):
-    return run(cmd, capture_output=True).stdout
+def retry(action, what):
+    """瞬时故障（连接重置、限流、服务端 5xx）重试，最后一次仍失败才抛。
 
-
-def required_max_tokens(model):
-    """返回当前模型在本管线中的安全输出预算下限。"""
-    if "deepseek-v4-pro" in (model or "").lower():
-        return DEEPSEEK_V4_PRO_MIN_MAX_TOKENS
-    return DEFAULT_MAX_TOKENS
-
-
-def validated_max_tokens():
-    """在任何付费请求前验证 MAX_TOKENS，避免旧 Secret 静默覆盖代码默认值。"""
-    model = os.environ.get("MODEL", "")
-    minimum = required_max_tokens(model)
-    raw = os.environ.get("MAX_TOKENS", str(minimum)).strip()
-    try:
-        value = int(raw)
-    except ValueError as exc:
-        raise SystemExit(f"MAX_TOKENS 必须是正整数，当前值: {raw!r}") from exc
-    if value < minimum:
-        reason = (
-            "DeepSeek V4 Pro thinking 的推理与最终译文共用输出预算"
-            if minimum == DEEPSEEK_V4_PRO_MIN_MAX_TOKENS
-            else "同组合并请求需要容纳完整译文"
-        )
-        raise SystemExit(
-            f"MAX_TOKENS={value} 过小；{reason}，本管线要求至少 {minimum}。"
-            "请修改 GitHub Actions Secret MAX_TOKENS 后手动重跑。"
-        )
-    return str(value)
-
-
-def guard_repeated_scheduled_failure():
-    """当前分支上次运行失败时暂停新的自动首跑，防止同一批剧情逐小时重复扣费。
-
-    workflow_dispatch 和手动 Re-run（GITHUB_RUN_ATTEMPT > 1）都明确表示人工恢复，
-    因而绕过此闸门；它们成功后也会成为当前分支最新完成的运行，解除暂停。
+    不加重试的后果已经吃过一次：一次 TCP reset 就能把整轮搞挂。
+    只包只读请求（下载、gh api 查询），写操作不重试以免重复产生副作用。
     """
-    if os.environ.get("GITHUB_EVENT_NAME") != "schedule":
-        return
-    try:
-        attempt = int(os.environ.get("GITHUB_RUN_ATTEMPT", "1"))
-    except ValueError:
-        attempt = 1
-    if attempt > 1:
-        return
-    repo = os.environ.get("GITHUB_REPOSITORY")
-    if not repo:
-        raise SystemExit("定时防重闸门缺少 GITHUB_REPOSITORY，已在付费请求前停止")
-    branch = os.environ.get("GITHUB_REF_NAME", "master")
-    endpoint = (
-        f"repos/{repo}/actions/workflows/campus-to-work.yml/runs"
-        f"?branch={branch}&status=completed&per_page=1"
-    )
-    payload = json.loads(out(["gh", "api", endpoint]))
-    runs = payload.get("workflow_runs", [])
-    if runs and runs[0].get("conclusion") == "failure":
-        previous = runs[0]
-        raise SystemExit(
-            "当前分支上一次翻译运行失败，已阻止本轮再次调用模型，避免同一批剧情重复扣费。"
-            f"上次运行: {previous.get('html_url', previous.get('id', 'unknown'))}。"
-            "修好配置后请手动 Re-run failed jobs，或用 workflow_dispatch 运行。"
-        )
+    delay = NET_BACKOFF
+    for attempt in range(1, NET_RETRIES + 1):
+        try:
+            return action()
+        except (OSError, subprocess.CalledProcessError) as error:
+            if attempt == NET_RETRIES:
+                raise
+            print(f"!! {what} 失败（第 {attempt}/{NET_RETRIES} 次）: {error}；{delay}s 后重试")
+            time.sleep(delay)
+            delay *= 2
+
+
+def out(cmd):
+    return retry(lambda: run(cmd, capture_output=True), " ".join(map(str, cmd[:3]))).stdout
+
+
+def configured_max_tokens():
+    """取值而已。校验由引擎的 validateMaxTokens 做——它就在 HTTP 请求前一行，
+    是离付费最近的位置，而且阈值只需要存一份。"""
+    return os.environ.get("MAX_TOKENS", "").strip() or str(DEFAULT_MAX_TOKENS)
 
 
 def clear_dir(path):
@@ -184,8 +151,12 @@ def download_txts(files, repo, campus_dir):
     kept = []
     for name in files:
         url = f"https://raw.githubusercontent.com/{repo}/main/{campus_dir}/{name}"
-        with urllib.request.urlopen(url) as resp:
-            data = resp.read()
+
+        def fetch():
+            with urllib.request.urlopen(url) as resp:
+                return resp.read()
+
+        data = retry(fetch, f"下载 {name}")
         if not TEXT_LINE_RE.search(data.decode("utf-8", errors="replace")):
             print(f"跳过(无台词): {name}")
             continue
@@ -226,8 +197,8 @@ def ensure_pretranslation_env():
     missing = [k for k in required if not os.environ.get(k)]
     if missing:
         raise SystemExit("缺少环境变量: " + ", ".join(missing))
-    max_tokens = validated_max_tokens()
-    print(f"翻译配置自检通过: MAX_TOKENS={max_tokens}")
+    max_tokens = configured_max_tokens()
+    print(f"写入引擎配置: MAX_TOKENS={max_tokens}")
     lines = [
         f"OPENAI_API_KEY={os.environ['OPENAI_API_KEY']}",
         f"OPENAI_BASE_URL={os.environ['OPENAI_BASE_URL']}",
@@ -271,22 +242,44 @@ def mask_tags(text):
     return TAG_RE.sub(repl, text or "")
 
 
-def restore_csvs(manifest=None):
+def group_members(name, manifest):
+    """返回该文件所属合并组的全部分段；不属于任何组则只有它自己。
+
+    同组是一次请求翻出来的，只补其中一段会错位，所以重翻必须整组重翻。
+    """
+    for parts in (manifest or {}).values():
+        names = [part for part, _ in parts]
+        if name in names:
+            return names
+    return [name]
+
+
+def restore_csvs(manifest=None, done=None):
+    """还原原文与标签、写出合格的 CSV，返回 {文件名: 失败原因}。
+
+    单个文件不合格不再中断整批——那会把同批已经付过钱的几十个文件
+    一起丢掉。调用方负责重试，重试不过再标记。
+    """
     src = PRETRANS_DIR / "tmp/translated"
     out_dir = Path("todo/translated/csv")
     out_dir.mkdir(parents=True, exist_ok=True)
-    stories = set()
+    done = done if done is not None else set()
+    failures = {}
 
-    # 合并翻译的先按行数拆回各段（就地拆在 src 里），之后逐段处理逻辑不变
+    # 合并翻译的先按行数拆回各段（就地拆在 src 里），之后逐段处理逻辑不变。
+    # 拆完后合并文件会被第一段覆盖，所以已完成的组不能再拆一次。
     for name, layout in (manifest or {}).items():
         merged = src / name
-        if merged.exists():
+        if merged.exists() and not any(part in done for part, _ in layout):
             split_merged(merged, layout, src)
 
     for translated in sorted(src.glob("*.csv")):
+        if translated.name in done:
+            continue
         orig_path = Path("todo/untranslated/csv_orig") / translated.name
         if not orig_path.exists():
             print(f"!! 缺原始 CSV，跳过: {translated.name}")
+            failures[translated.name] = "缺少对应的原始 CSV"
             continue
 
         with orig_path.open(encoding="utf-8", newline="") as f:
@@ -301,6 +294,9 @@ def restore_csvs(manifest=None):
             translator = rows.pop()
         if len(rows) != len(orig_rows):
             print(f"!! 行数不一致，跳过: {translated.name}")
+            failures[translated.name] = (
+                f"行数不一致（原文 {len(orig_rows)} 行，译文 {len(rows)} 行）"
+            )
             continue
 
         for orig, row in zip(orig_rows, rows):
@@ -311,7 +307,8 @@ def restore_csvs(manifest=None):
         if errors:
             for e in errors[:10]:
                 print("!!", e)
-            raise SystemExit(f"{translated.name} HTML标签不一致，停止推送工作台")
+            failures[translated.name] = errors[0]
+            continue
         if translator:
             rows.append(translator)
 
@@ -321,10 +318,45 @@ def restore_csvs(manifest=None):
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
             writer.writerows(rows)
-        stories.add(translated.stem.rpartition("_")[0] or translated.stem)
+        done.add(translated.name)
         print(f"待推送工作仓: {translated.name}")
 
-    return sorted(stories)
+    return failures
+
+
+def requeue_failures(failures, manifest, done):
+    """把失败文件（及其所在合并组）的输出删掉，下一轮就会重翻它们。
+
+    翻译入口默认跳过已存在的输出，所以只需删掉要重翻的，合格的不会再花钱。
+    """
+    src = PRETRANS_DIR / "tmp/translated"
+    out_dir = Path("todo/translated/csv")
+    for name in list(failures):
+        for member in group_members(name, manifest):
+            (src / member).unlink(missing_ok=True)
+            (out_dir / member).unlink(missing_ok=True)
+            done.discard(member)
+
+
+def mark_failed(repo, failures):
+    """给反复失败的文件在工作仓开一个标记 issue，不传 CSV。
+
+    既让人看得见，也让去重认得它（known_files 是认 issue 标题的），
+    不会下一轮又把它当新文件重翻一次。
+    """
+    subprocess.run(["gh", "label", "create", "机翻异常", "-R", repo, "--force"],
+                   capture_output=True)
+    for name, reason in sorted(failures.items()):
+        title = name[:-len(".csv")] if name.endswith(".csv") else name
+        body = (
+            f"机翻连续 {RETRY_ROUNDS} 轮未通过校验，未入库。\n\n"
+            f"原因：{reason}\n\n需要人工处理。"
+        )
+        try:
+            run(["gh", "issue", "create", "-R", repo, "--title", title,
+                 "--body", body, "--label", "机翻异常"])
+        except subprocess.CalledProcessError:
+            print(f"!! 标记 issue 创建失败，下轮会重试该文件: {title}")
 
 
 def tag_signature(text):
@@ -374,8 +406,6 @@ def main():
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
-    guard_repeated_scheduled_failure()
-
     remote = campus_file_list(args.campus_repo, args.campus_dir)
     known = known_files(args.work_repo, args.work_branch)
     prefixes = tuple(p.strip() for p in args.prefix.split(",") if p.strip())
@@ -417,43 +447,62 @@ def main():
                 shutil.copy2(canonical_summary, runtime_summary)
             else:
                 runtime_summary.write_text("{}\n", encoding="utf-8")
-            max_tokens = validated_max_tokens()
+            max_tokens = configured_max_tokens()
+            translate_env = {
+                **os.environ,
+                # 翻译记忆只读 csv_data（人工实装译文），机翻不回写，不自我污染
+                "TM_DIR": str(ROOT / "csv_data"),
+                "DEAR_SUMMARY_FILE": str(runtime_summary),
+                "DEAR_SUMMARY_WRITE": "1",
+                # 合并后的同组 CSV 必须放得进一次请求，否则又被切开等于白合并
+                "MAX_LINES_PER_REQUEST": os.environ.get("MAX_LINES_PER_REQUEST", "250"),
+                "MAX_TOKENS": max_tokens,
+            }
             translation_error = None
-            try:
-                run([YARN, "--cwd", str(PRETRANS_DIR), "translate:folder"], env={
-                    **os.environ,
-                    # 翻译记忆只读 csv_data（人工实装译文），机翻不回写，不自我污染
-                    "TM_DIR": str(ROOT / "csv_data"),
-                    "DEAR_SUMMARY_FILE": str(runtime_summary),
-                    "DEAR_SUMMARY_WRITE": "1",
-                    # 合并后的同组 CSV 必须放得进一次请求，否则又被切开等于白合并
-                    "MAX_LINES_PER_REQUEST": os.environ.get("MAX_LINES_PER_REQUEST", "250"),
-                    "MAX_TOKENS": max_tokens,
-                })
-            except subprocess.CalledProcessError as exc:
-                # fail-fast 会留下此前已经完整写出的 CSV。先把这些成果播种，
-                # 再让本轮失败；否则人工恢复时还会为已成功文件重复付费。
-                translation_error = exc
-                print("!! 翻译引擎已停止；正在保存失败前已完成的译文")
+            done, failures = set(), {}
+            for attempt in range(1, RETRY_ROUNDS + 1):
+                if attempt > 1:
+                    print(f"第 {attempt} 轮：重翻 {len(failures)} 个未通过校验的文件")
+                try:
+                    run([YARN, "--cwd", str(PRETRANS_DIR), "translate:folder"],
+                        env=translate_env)
+                except subprocess.CalledProcessError as exc:
+                    # fail-fast 会留下此前已经完整写出的 CSV。先把这些成果播种，
+                    # 再让本轮失败；否则人工恢复时还会为已成功文件重复付费。
+                    translation_error = exc
+                    print("!! 翻译引擎已停止；正在保存失败前已完成的译文")
 
-            stories = restore_csvs(manifest)
-            if not stories:
-                if translation_error:
-                    raise SystemExit("翻译在首个文件失败，没有生成可播种的 CSV") from translation_error
-                raise SystemExit("没有生成可播种的 CSV")
-            run([
-                sys.executable, str(ROOT / "tools/seed_work_repo.py"),
-                "--repo", args.work_repo,
-                "--stories", *stories,
-                "--csv-src", str(Path.cwd() / "todo/translated/csv"),
-                "--push", "--issues",
-                "--raw-dir", str(Path.cwd() / "todo/untranslated/txt"),
-            ], cwd=str(ROOT))
+                failures = restore_csvs(manifest, done)
+                # 引擎本身挂了（余额/认证/参数），重试只会再挂一次，不必烧钱
+                if not failures or translation_error or attempt == RETRY_ROUNDS:
+                    break
+                requeue_failures(failures, manifest, done)
+
+            stories = sorted({
+                path.stem.rpartition("_")[0] or path.stem
+                for path in Path("todo/translated/csv").glob("*.csv")
+            })
+            if stories:
+                run([
+                    sys.executable, str(ROOT / "tools/seed_work_repo.py"),
+                    "--repo", args.work_repo,
+                    "--stories", *stories,
+                    "--csv-src", str(Path.cwd() / "todo/translated/csv"),
+                    "--push", "--issues",
+                    "--raw-dir", str(Path.cwd() / "todo/untranslated/txt"),
+                ], cwd=str(ROOT))
+            if failures:
+                print(f"!! {len(failures)} 个文件重翻 {RETRY_ROUNDS} 轮仍未通过校验，标记待人工处理")
+                mark_failed(args.work_repo, failures)
             if translation_error:
                 raise SystemExit(
                     f"翻译中途失败；已先保存 {len(stories)} 个完成剧情组，"
                     "剩余文件需人工恢复后再翻"
                 ) from translation_error
+            if failures:
+                raise SystemExit(f"{len(failures)} 个文件未入库，已在工作仓标记")
+            if not stories:
+                raise SystemExit("没有生成可播种的 CSV")
         finally:
             os.chdir(old_cwd)
 
