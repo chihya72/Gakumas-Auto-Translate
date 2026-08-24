@@ -53,32 +53,37 @@ export class FatalApiError extends FatalTranslationError {
   }
 }
 
+/** deepseek-v4 系列（pro 与 flash）都接受 thinking 参数，其它模型不发。 */
+function acceptsThinking(model: string): boolean {
+  return model.toLowerCase().includes("deepseek-v4");
+}
+
 /**
- * 要不要开 thinking。两个条件都满足才开：
- *   1. 这个任务需要推理——翻译需要；写摘要、抽术语这类
- *      输出只有几百 token 的辅助任务不需要（实测开着时 95% 的
- *      输出预算花在思考上，真正的摘要只占 2%）。
- *   2. 这个模型确实吃这两个参数。只对 deepseek-v4-pro 发；
- *      flash 等其它型号走普通的 temperature 分支，不会因为名字里
- *      带了 deepseek-v4 就被强制开推理。
- * THINKING=on / off 可以两个方向强制覆盖，换模型不必改代码。
+ * 这个任务要不要推理。翻译要；写摘要、抽术语这类输出只有几百
+ * token 的辅助任务不要——实测开着时 95% 的输出预算花在思考上，
+ * 真正的摘要只占 2%。THINKING=on/off 可两个方向强制覆盖。
  */
 function useThinking(model: string, taskWantsThinking: boolean): boolean {
   const override = (process.env.THINKING || "").trim().toLowerCase();
   if (override === "off" || override === "0" || override === "false") return false;
-  if (!taskWantsThinking) return false;
   if (override === "on" || override === "1" || override === "true") return true;
-  return model.toLowerCase().includes("deepseek-v4-pro");
+  return taskWantsThinking && acceptsThinking(model);
 }
 
-export function validateMaxTokens(model: string, maxTokens: number): void {
+export function validateMaxTokens(
+  model: string,
+  maxTokens: number,
+  thinking = false,
+): void {
   if (!Number.isInteger(maxTokens) || maxTokens <= 0) {
     throw new FatalTranslationError(`MAX_TOKENS 必须是正整数，当前值: ${maxTokens}`);
   }
-  if (model.toLowerCase().includes("deepseek-v4-pro") && maxTokens < 65536) {
+  // 下限取决于“这次请求到底开不开推理”，而不是型号叫什么：
+  // 推理与最终译文共用输出预算，flash 开了思考一样会被截断。
+  if (thinking && maxTokens < 65536) {
     throw new FatalTranslationError(
-      `MAX_TOKENS=${maxTokens} 过小；DeepSeek V4 Pro thinking 的推理与最终译文` +
-        "共用输出预算，本管线要求至少 65536。",
+      `MAX_TOKENS=${maxTokens} 过小；${model} 开启 thinking 时推理与最终译文` +
+        "共用输出预算，本管线要求至少 65536（或设 THINKING=off）。",
     );
   }
 }
@@ -503,7 +508,8 @@ export async function chat(
   taskWantsThinking = true,
 ) {
   try {
-    validateMaxTokens(model, max_tokens);
+    const thinking = useThinking(model, taskWantsThinking);
+    validateMaxTokens(model, max_tokens, thinking);
     const openai = axios.create({
       baseURL,
       headers: {
@@ -512,17 +518,19 @@ export async function chat(
       },
     });
     const messages = buildChatMessages(userInput, context, systemPrompt);
-    const deepSeekV4 = useThinking(model, taskWantsThinking);
     const requestBody: any = {
       model,
       messages,
       max_tokens,
     };
-    if (deepSeekV4) {
-      // DeepSeek OpenAI 兼容接口的显式 thinking 开关；high 是普通请求默认强度。
-      requestBody.thinking = { type: "enabled" };
-      requestBody.reasoning_effort = "high";
-    } else {
+    if (acceptsThinking(model)) {
+      // thinking.type 的服务端默认值是 "enabled"——不发这个字段不等于关推理，
+      // 必须显式发 disabled 才是关。reasoning_effort 按文档嵌在 thinking 里。
+      requestBody.thinking = thinking
+        ? { type: "enabled", reasoning_effort: "high" }
+        : { type: "disabled" };
+    }
+    if (!thinking) {
       requestBody.temperature = 0.7;
     }
     const configuredTimeout = parseInt(process.env.API_TIMEOUT_MS || "", 10);
@@ -530,7 +538,7 @@ export async function chat(
       Number.isFinite(configuredTimeout) && configuredTimeout > 0 ? configuredTimeout : 600000;
     log.info(
       `Sending request to ${model} API ` +
-        `(thinking=${deepSeekV4 ? "enabled/high" : "provider-default"}, ` +
+        `(thinking=${thinking ? "enabled/high" : acceptsThinking(model) ? "disabled" : "n/a"}, ` +
         `max_tokens=${max_tokens}, timeout=${Math.round(timeout / 1000)}s), please wait...`,
     );
     const response = await openai.post(
@@ -549,11 +557,15 @@ export async function chat(
     const reasoningText = choice.message.reasoning_content || "";
     const usage = response.data.usage || {};
     const reasoningTokens = usage.completion_tokens_details?.reasoning_tokens ?? "unknown";
+    // 命中的输入价格是未命中的 1/30，不打出来就无从判断前缀缓存有没有在工作
+    const cacheHit = usage.prompt_cache_hit_tokens ?? "unknown";
+    const cacheMiss = usage.prompt_cache_miss_tokens ?? "unknown";
     const finishReason = choice.finish_reason || "unknown";
     log.info(
       `API response: finish_reason=${finishReason}, ` +
         `content_chars=${generatedText.length}, reasoning_chars=${reasoningText.length}, ` +
-        `prompt_tokens=${usage.prompt_tokens ?? "unknown"}, ` +
+        `prompt_tokens=${usage.prompt_tokens ?? "unknown"} ` +
+        `(cache hit=${cacheHit}, miss=${cacheMiss}), ` +
         `completion_tokens=${usage.completion_tokens ?? "unknown"}, ` +
         `reasoning_tokens=${reasoningTokens}, total_tokens=${usage.total_tokens ?? "unknown"}`,
     );
