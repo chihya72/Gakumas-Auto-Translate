@@ -340,7 +340,6 @@ async function rebuildCharacter(
         config,
         [glossaryBlock(blockLines)].filter(Boolean),
         dearSummaryPrompt,
-        false,
       ),
     );
     if (!reply.summary) {

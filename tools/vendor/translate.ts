@@ -53,38 +53,9 @@ export class FatalApiError extends FatalTranslationError {
   }
 }
 
-/** deepseek-v4 系列（pro 与 flash）都接受 thinking 参数，其它模型不发。 */
-function acceptsThinking(model: string): boolean {
-  return model.toLowerCase().includes("deepseek-v4");
-}
-
-/**
- * 这个任务要不要推理。翻译要；写摘要、抽术语这类输出只有几百
- * token 的辅助任务不要——实测开着时 95% 的输出预算花在思考上，
- * 真正的摘要只占 2%。THINKING=on/off 可两个方向强制覆盖。
- */
-function useThinking(model: string, taskWantsThinking: boolean): boolean {
-  const override = (process.env.THINKING || "").trim().toLowerCase();
-  if (override === "off" || override === "0" || override === "false") return false;
-  if (override === "on" || override === "1" || override === "true") return true;
-  return taskWantsThinking && acceptsThinking(model);
-}
-
-export function validateMaxTokens(
-  model: string,
-  maxTokens: number,
-  thinking = false,
-): void {
+export function validateMaxTokens(maxTokens: number): void {
   if (!Number.isInteger(maxTokens) || maxTokens <= 0) {
     throw new FatalTranslationError(`MAX_TOKENS 必须是正整数，当前值: ${maxTokens}`);
-  }
-  // 下限取决于“这次请求到底开不开推理”，而不是型号叫什么：
-  // 推理与最终译文共用输出预算，flash 开了思考一样会被截断。
-  if (thinking && maxTokens < 65536) {
-    throw new FatalTranslationError(
-      `MAX_TOKENS=${maxTokens} 过小；${model} 开启 thinking 时推理与最终译文` +
-        "共用输出预算，本管线要求至少 65536（或设 THINKING=off）。",
-    );
   }
 }
 
@@ -169,7 +140,7 @@ async function buildEventGlossary(
     texts.join("\n");
   const result: Record<string, string> = {};
   try {
-    const raw = await chat(prompt, config, [], eventGlossaryPrompt, false);
+    const raw = await chat(prompt, config, [], eventGlossaryPrompt);
     for (const line of raw.split("\n")) {
       const parts = line.split("|");
       if (parts.length === 3 && parts[0].trim() === "TERM") {
@@ -252,7 +223,6 @@ async function updateDearSummary(
       config,
       [glossaryBlock(data.map((r) => r.text))].filter(Boolean),
       dearSummaryPrompt,
-      false,
     );
     let summary = "";
     const fixed: Record<string, string> = {};
@@ -505,11 +475,9 @@ export async function chat(
   { apiKey, baseURL, model, max_tokens }: LLMConfig,
   context: string[] = [],
   systemPrompt: string = chinesePrompt,
-  taskWantsThinking = true,
 ) {
   try {
-    const thinking = useThinking(model, taskWantsThinking);
-    validateMaxTokens(model, max_tokens, thinking);
+    validateMaxTokens(max_tokens);
     const openai = axios.create({
       baseURL,
       headers: {
@@ -518,28 +486,15 @@ export async function chat(
       },
     });
     const messages = buildChatMessages(userInput, context, systemPrompt);
-    const requestBody: any = {
-      model,
-      messages,
-      max_tokens,
-    };
-    if (acceptsThinking(model)) {
-      // thinking.type 的服务端默认值是 "enabled"——不发这个字段不等于关推理，
-      // 必须显式发 disabled 才是关。reasoning_effort 按文档嵌在 thinking 里。
-      requestBody.thinking = thinking
-        ? { type: "enabled", reasoning_effort: "high" }
-        : { type: "disabled" };
-    }
-    if (!thinking) {
-      requestBody.temperature = 0.7;
-    }
+    // 只发 OpenAI 兼容接口的标准字段。推理强度、温度这些一律用服务端默认值——
+    // 按模型名分支意味着每换一家 API 就要再写一套判断。
+    const requestBody = { model, messages, max_tokens };
     const configuredTimeout = parseInt(process.env.API_TIMEOUT_MS || "", 10);
     const timeout =
       Number.isFinite(configuredTimeout) && configuredTimeout > 0 ? configuredTimeout : 600000;
     log.info(
       `Sending request to ${model} API ` +
-        `(thinking=${thinking ? "enabled/high" : acceptsThinking(model) ? "disabled" : "n/a"}, ` +
-        `max_tokens=${max_tokens}, timeout=${Math.round(timeout / 1000)}s), please wait...`,
+        `(max_tokens=${max_tokens}, timeout=${Math.round(timeout / 1000)}s), please wait...`,
     );
     const response = await openai.post(
       "/v1/chat/completions",

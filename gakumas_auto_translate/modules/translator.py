@@ -7,16 +7,9 @@ import re
 import shutil
 from pathlib import Path
 
-# 单次请求最多 250 行。DeepSeek V4 Pro 的 thinking 与最终译文共用
-# max_tokens，因此需要比普通非思考模型更大的预算。
+# 单次请求最多 250 行的兜底输出预算。不按模型名分档——那样每换一家 API
+# 就得再加一条判断；输出被截断时引擎会看 finish_reason=length 并只补缺失行。
 DEFAULT_MIN_MAX_TOKENS = 12288
-DEEPSEEK_V4_PRO_MIN_MAX_TOKENS = 65536
-
-
-def required_max_tokens(model):
-    if "deepseek-v4-pro" in (model or "").lower():
-        return DEEPSEEK_V4_PRO_MIN_MAX_TOKENS
-    return DEFAULT_MIN_MAX_TOKENS
 
 
 def ensure_engine_settings(env_path, summary_path=None):
@@ -25,9 +18,7 @@ def ensure_engine_settings(env_path, summary_path=None):
         return
     with open(env_path, "r", encoding="utf-8") as f:
         text = f.read()
-    model_match = re.search(r"^MODEL=(.+?)\s*$", text, re.M)
-    model = model_match.group(1).strip() if model_match else ""
-    minimum = required_max_tokens(model)
+    minimum = DEFAULT_MIN_MAX_TOKENS
     m = re.search(r"^MAX_TOKENS=(\d+)\s*$", text, re.M)
     current = int(m.group(1)) if m else 0
     changed = False
@@ -37,7 +28,7 @@ def ensure_engine_settings(env_path, summary_path=None):
             text.rstrip("\n") + "\n" + line + "\n"
         changed = True
         print(f"已把 .env 的 MAX_TOKENS 从 {current or '(未设置)'} 调高到 {minimum}"
-              f"——当前模型的思考与最终译文需要更大的完整输出预算")
+              f"——单次请求需要足够的完整输出预算")
 
     summary_match = re.search(r"^DEAR_SUMMARY_FILE=(.*)$", text, re.M)
     if summary_path and (not summary_match or not summary_match.group(1).strip()):

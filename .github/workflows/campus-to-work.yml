@@ -31,7 +31,7 @@ jobs:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
       MODEL: ${{ secrets.MODEL }}
-      # V4 Pro thinking 同时消耗推理与最终译文预算；引擎在发 HTTP 请求前校验至少 65536。
+      # 输出预算上限。引擎只校验它是正整数，不按模型名分档。
       # OPENAI_API_KEY / OPENAI_BASE_URL / MODEL 缺失由 ensure_pretranslation_env 报错，这里不再查一遍。
       MAX_TOKENS: ${{ secrets.MAX_TOKENS }}
       LOG_LEVEL: info
