@@ -53,8 +53,22 @@ export class FatalApiError extends FatalTranslationError {
   }
 }
 
-function isDeepSeekV4(model: string): boolean {
-  return model.toLowerCase().includes("deepseek-v4");
+/**
+ * 要不要开 thinking。两个条件都满足才开：
+ *   1. 这个任务需要推理——翻译需要；写摘要、抽术语这类
+ *      输出只有几百 token 的辅助任务不需要（实测开着时 95% 的
+ *      输出预算花在思考上，真正的摘要只占 2%）。
+ *   2. 这个模型确实吃这两个参数。只对 deepseek-v4-pro 发；
+ *      flash 等其它型号走普通的 temperature 分支，不会因为名字里
+ *      带了 deepseek-v4 就被强制开推理。
+ * THINKING=on / off 可以两个方向强制覆盖，换模型不必改代码。
+ */
+function useThinking(model: string, taskWantsThinking: boolean): boolean {
+  const override = (process.env.THINKING || "").trim().toLowerCase();
+  if (override === "off" || override === "0" || override === "false") return false;
+  if (!taskWantsThinking) return false;
+  if (override === "on" || override === "1" || override === "true") return true;
+  return model.toLowerCase().includes("deepseek-v4-pro");
 }
 
 export function validateMaxTokens(model: string, maxTokens: number): void {
@@ -150,7 +164,7 @@ async function buildEventGlossary(
     texts.join("\n");
   const result: Record<string, string> = {};
   try {
-    const raw = await chat(prompt, config, [], eventGlossaryPrompt);
+    const raw = await chat(prompt, config, [], eventGlossaryPrompt, false);
     for (const line of raw.split("\n")) {
       const parts = line.split("|");
       if (parts.length === 3 && parts[0].trim() === "TERM") {
@@ -213,7 +227,9 @@ async function updateDearSummary(
   const prompt =
     "你在维护一份偶像游戏好感度剧情的翻译辅助摘要，供翻译下一话时参考。\n" +
     "只记录对翻译有影响的内容：与制作人的关系走到哪个阶段、称呼或自称的变化及其触发点、" +
-    "已建立的重要设定。不要写剧情流水账，不要写人物性格评价。摘要控制在 600 字以内。\n\n" +
+    "已建立的重要设定。不要写剧情流水账，不要写人物性格评价。摘要控制在 600 字以内。\n" +
+    "下面的中文是本轮机翻，用词不是定稿；专有名词以术语表为准，\n" +
+    "摘要里不得出现日文写法。\n\n" +
     "输出格式（只输出这些行，不要任何说明文字）：\n" +
     "SUMMARY|<更新后的摘要全文，单行，不要换行>\n" +
     "FIXED|<项目名>|<已固定的译法>   （可有多行，没有则不输出）\n" +
@@ -226,7 +242,13 @@ async function updateDearSummary(
       : "") +
     `第 ${info.episode} 话的原文与译文（格式 说话人|原文|译文）：\n${body}`;
   try {
-    const raw = await chat(prompt, config, [], dearSummaryPrompt);
+    const raw = await chat(
+      prompt,
+      config,
+      [glossaryBlock(data.map((r) => r.text))].filter(Boolean),
+      dearSummaryPrompt,
+      false,
+    );
     let summary = "";
     const fixed: Record<string, string> = {};
     for (const line of raw.split("\n")) {
@@ -478,6 +500,7 @@ export async function chat(
   { apiKey, baseURL, model, max_tokens }: LLMConfig,
   context: string[] = [],
   systemPrompt: string = chinesePrompt,
+  taskWantsThinking = true,
 ) {
   try {
     validateMaxTokens(model, max_tokens);
@@ -489,7 +512,7 @@ export async function chat(
       },
     });
     const messages = buildChatMessages(userInput, context, systemPrompt);
-    const deepSeekV4 = isDeepSeekV4(model);
+    const deepSeekV4 = useThinking(model, taskWantsThinking);
     const requestBody: any = {
       model,
       messages,

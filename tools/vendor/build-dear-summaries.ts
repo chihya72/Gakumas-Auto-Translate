@@ -23,6 +23,7 @@ import { getLLMConfig, setupLog } from "./setup-env";
 import {
   DearSummary,
   DearSummaryCheckpoint,
+  glossaryBlock,
   isHumanTranslator,
   loadDearSummaries,
   saveDearSummary,
@@ -242,7 +243,11 @@ function buildPrompt(prev: string, prevFixed: Record<string, string>, block: Epi
     .map(([jp, zh]) => `${jp}|${zh}`)
     .join("\n");
   return (
-    "剧情以日文原文为准；标注含机翻的中文只作参考，不要继承其用词。\n\n" +
+    "发生了什么（情节、关系变化）以日文原文为准。\n" +
+    "但专有名词、人名、称呼、作品名一律沿用中文译文列里已有的译法——那是定稿，\n" +
+    "摘要里不得出现日文写法（例：该写「启明星」而不是「一番星」）。\n" +
+    "只有标注「含机翻，仅供参考」的话，其中文用词不可信；\n" +
+    "这类话里的专有名词改用术语表，或其它话里已确立的译法。\n\n" +
     (prev ? `此前摘要：\n${prev}\n\n` : "") +
     (fixedText ? `此前已固定的称呼或自称（日文|中文）：\n${fixedText}\n\n` : "") +
     `请并入第 ${block.from}~${block.through} 话（说话人|原文|译文）：\n${body}`
@@ -325,8 +330,18 @@ async function rebuildCharacter(
   const config = getLLMConfig();
   for (let index = matched; index < blocks.length; index++) {
     const block = blocks[index];
+    // 以前这里传的是 []，摘要任务根本没见过术语表，
+    // 所以会把日文专有名词原样写进摘要，再注入翻译时
+    // 就和术语表自相矛盾。
+    const blockLines = block.episodes.flatMap((episode) => episode.lines);
     const reply = parseReply(
-      await chat(buildPrompt(summary, fixed, block), config, [], dearSummaryPrompt),
+      await chat(
+        buildPrompt(summary, fixed, block),
+        config,
+        [glossaryBlock(blockLines)].filter(Boolean),
+        dearSummaryPrompt,
+        false,
+      ),
     );
     if (!reply.summary) {
       throw new Error(`${character} 第 ${block.from}~${block.through} 话未返回 SUMMARY`);
