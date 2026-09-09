@@ -32,6 +32,8 @@ TAG_RE = re.compile(r"</?[A-Za-z][A-Za-z0-9_:-]*(?:\\=[^>]*)?>")
 ECHO_MARKERS = ("REF|", "TERM|", "角色卡", "剧情摘要", "术语表")
 # 有台词的行特征；全无 = 空剧本（纯演出脚本），与本地菜单2的过滤同构，下载时直接跳过
 TEXT_LINE_RE = re.compile(r"(?:message|narration|choice) text=|title title=")
+# 引擎每写完一个译文文件打的日志行（translate-folder.ts）
+OUTPUT_RE = re.compile(r"Output to (.+\.csv)\s*$")
 ROOT = Path(__file__).resolve().parents[1]
 VENDOR_SRC = ROOT / "tools/vendor"
 PRETRANS_DIR = ROOT / "GakumasPreTranslation"
@@ -254,17 +256,22 @@ def group_members(name, manifest):
     return [name]
 
 
-def restore_csvs(manifest=None, done=None):
+def restore_csvs(manifest=None, done=None, only=None):
     """还原原文与标签、写出合格的 CSV，返回 {文件名: 失败原因}。
 
     单个文件不合格不再中断整批——那会把同批已经付过钱的几十个文件
     一起丢掉。调用方负责重试，重试不过再标记。
+
+    only：只处理这几个引擎输出文件（合并组自动展开成全部分段）。引擎每写出
+    一个文件就调一次，翻一个推一个；None = 扫整个输出目录。
     """
     src = PRETRANS_DIR / "tmp/translated"
     out_dir = Path("todo/translated/csv")
     out_dir.mkdir(parents=True, exist_ok=True)
     done = done if done is not None else set()
     failures = {}
+    if only is not None:
+        only = {m for n in only for m in group_members(n, manifest)}
 
     # 合并翻译的先按行数拆回各段（就地拆在 src 里），之后逐段处理逻辑不变。
     # 拆完后合并文件会被第一段覆盖，所以已完成的组不能再拆一次。
@@ -275,6 +282,8 @@ def restore_csvs(manifest=None, done=None):
 
     for translated in sorted(src.glob("*.csv")):
         if translated.name in done:
+            continue
+        if only is not None and translated.name not in only:
             continue
         orig_path = Path("todo/untranslated/csv_orig") / translated.name
         if not orig_path.exists():
@@ -322,6 +331,26 @@ def restore_csvs(manifest=None, done=None):
         print(f"待推送工作仓: {translated.name}")
 
     return failures
+
+
+def translate_streaming(env, on_output):
+    """跑翻译引擎，每看到一行「Output to xxx.csv」就回调一次，返回退出码。
+
+    引擎是写完文件才打这行日志，所以回调时文件一定是完整的。
+    以前是等整批翻完再统一还原、推送，job 被取消或撞 6 小时上限时
+    已翻好的几十个文件全部随 runner 消失，下一轮 cron 再原样重翻一遍。
+    """
+    cmd = [YARN, "--cwd", str(PRETRANS_DIR), "translate:folder"]
+    print("  $", " ".join(map(str, cmd)))
+    proc = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, text=True,
+                            encoding="utf-8", errors="replace")
+    for line in proc.stdout:
+        print(line, end="", flush=True)
+        m = OUTPUT_RE.search(line)
+        if m:
+            on_output(Path(m.group(1).strip()).name)
+    return proc.wait()
 
 
 def requeue_failures(failures, manifest, done):
@@ -405,6 +434,8 @@ def main():
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
+    # 引擎日志是逐行透传的，自己的进度行也得逐行刷出来，否则 Actions 里顺序乱
+    sys.stdout.reconfigure(line_buffering=True)
 
     remote = campus_file_list(args.campus_repo, args.campus_dir)
     known = known_files(args.work_repo, args.work_branch)
@@ -460,44 +491,59 @@ def main():
             }
             translation_error = None
             done, failures = set(), {}
+            seeded, seeded_stories = set(), set()
+
+            def harvest(name=None):
+                """还原校验刚写出的文件，合格的立刻推工作仓开 issue。
+
+                seed 脚本按剧情收集 csv 目录里的全部分段，已推过的文件和已开的
+                issue 它自己会跳过，所以同一剧情多次调用是安全的。
+                """
+                failures.update(restore_csvs(manifest, done, {name} if name else None))
+                fresh = done - seeded
+                if not fresh:
+                    return
+                stories = sorted({f[:-len(".csv")].rpartition("_")[0] or f[:-len(".csv")]
+                                  for f in fresh})
+                try:
+                    run([
+                        sys.executable, str(ROOT / "tools/seed_work_repo.py"),
+                        "--repo", args.work_repo,
+                        "--stories", *stories,
+                        "--csv-src", str(Path.cwd() / "todo/translated/csv"),
+                        "--push", "--issues",
+                        "--raw-dir", str(Path.cwd() / "todo/untranslated/txt"),
+                    ], cwd=str(ROOT))
+                except subprocess.CalledProcessError as exc:
+                    # 推送失败不能打断还在跑的引擎；这批文件留在 done-seeded 里，
+                    # 下一个文件翻完再一起推
+                    print(f"!! 推送工作仓失败，下次一起重推: {exc}")
+                    return
+                seeded.update(fresh)
+                seeded_stories.update(stories)
+
             for attempt in range(1, RETRY_ROUNDS + 1):
                 if attempt > 1:
                     print(f"第 {attempt} 轮：重翻 {len(failures)} 个未通过校验的文件")
-                try:
-                    run([YARN, "--cwd", str(PRETRANS_DIR), "translate:folder"],
-                        env=translate_env)
-                except subprocess.CalledProcessError as exc:
-                    # fail-fast 会留下此前已经完整写出的 CSV。先把这些成果播种，
-                    # 再让本轮失败；否则人工恢复时还会为已成功文件重复付费。
-                    translation_error = exc
-                    print("!! 翻译引擎已停止；正在保存失败前已完成的译文")
-
-                failures = restore_csvs(manifest, done)
+                failures = {}
+                code = translate_streaming(translate_env, harvest)
+                harvest()  # 兜底扫一遍，正常情况下已经没有漏网的文件
+                if code != 0:
+                    translation_error = subprocess.CalledProcessError(code, "translate:folder")
+                    print("!! 翻译引擎已停止；失败前完成的译文已逐个推送")
                 # 引擎本身挂了（余额/认证/参数），重试只会再挂一次，不必烧钱
                 if not failures or translation_error or attempt == RETRY_ROUNDS:
                     break
                 requeue_failures(failures, manifest, done)
 
-            stories = sorted({
-                path.stem.rpartition("_")[0] or path.stem
-                for path in Path("todo/translated/csv").glob("*.csv")
-            })
-            if stories:
-                run([
-                    sys.executable, str(ROOT / "tools/seed_work_repo.py"),
-                    "--repo", args.work_repo,
-                    "--stories", *stories,
-                    "--csv-src", str(Path.cwd() / "todo/translated/csv"),
-                    "--push", "--issues",
-                    "--raw-dir", str(Path.cwd() / "todo/untranslated/txt"),
-                ], cwd=str(ROOT))
+            stories = sorted(seeded_stories)
             if failures:
                 print(f"!! {len(failures)} 个文件重翻 {RETRY_ROUNDS} 轮仍未通过校验，标记待人工处理")
                 mark_failed(args.work_repo, failures)
             if translation_error:
                 raise SystemExit(
-                    f"翻译中途失败；已先保存 {len(stories)} 个完成剧情组，"
-                    "剩余文件需人工恢复后再翻"
+                    f"翻译中途失败；已推送 {len(stories)} 个剧情组，"
+                    "剩余文件下一轮会作为新增继续翻"
                 ) from translation_error
             if failures:
                 raise SystemExit(f"{len(failures)} 个文件未入库，已在工作仓标记")

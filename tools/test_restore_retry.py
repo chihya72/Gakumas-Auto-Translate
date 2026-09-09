@@ -104,6 +104,18 @@ def main():
             assert not list(Path("todo/translated/csv").glob("*.csv"))
             os.chdir(old_cwd)
 
+        # --- 3b. only=引擎刚写出的那个文件：只收它，合并组展开成整组 ---
+        with tempfile.TemporaryDirectory() as tmp:
+            parts = ["g_01.csv", "g_02.csv", "g_03.csv"]
+            manifest = {"g_01.csv": [[p, 1] for p in parts]}
+            setup(tmp, {**{p: good_trans(RUBY) for p in parts}, "x.csv": good_trans(RUBY)})
+            done = set()
+            assert acp.restore_csvs(manifest, done, only={"g_01.csv"}) == {}
+            assert done == set(parts), f"合并组应整组收回，x.csv 不该动: {done}"
+            assert acp.restore_csvs(manifest, done, only={"x.csv"}) == {}
+            assert done == set(parts) | {"x.csv"}, done
+            os.chdir(old_cwd)
+
         # --- 4. 网络瞬时故障要重试，不能一次 TCP reset 就崩掉整轮 ---
         acp.NET_BACKOFF = 0          # 测试里不真等
         calls = []
