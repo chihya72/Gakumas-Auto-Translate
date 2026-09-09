@@ -166,7 +166,7 @@ async function buildEventGlossary(
  * 写成剧情流水账就等于把 REF 的毛病用更贵的方式重犯一遍。
  */
 async function updateDearSummary(
-  info: { character: string; episode: number },
+  info: { character: string; episode: number; supplement?: boolean },
   data: CsvDataLine[],
   config: LLMConfig,
 ): Promise<void> {
@@ -181,17 +181,21 @@ async function updateDearSummary(
   // 而且下次翻新话时注入的是一份残缺摘要，不报错也查不出来。
   // 要整段重建就先清掉该角色条目，让链条从头长起来：重建必须是显式的。
   const prevEp = prev?.through_episode ?? -1;
-  if (prevEp >= info.episode) {
+  // 补充篇（037-01，游戏内 37.5 话）并入第 N 话：要求摘要已到 N，回写后仍停在 N。
+  // 主篇要求摘要刚好到 N-1，回写后推进到 N。
+  const label = `第 ${info.episode} 话${info.supplement ? "补充篇" : ""}`;
+  if (!info.supplement && prevEp >= info.episode) {
     log.warn(
-      `dear 摘要已覆盖到第 ${prevEp} 话，跳过第 ${info.episode} 话的回写。` +
+      `dear 摘要已覆盖到第 ${prevEp} 话，跳过${label}的回写。` +
         `如需重建请先清空 ${info.character} 的条目。`,
     );
     return;
   }
-  const firstEpisode = info.episode === 0 || info.episode === 1;
-  if ((prev && prevEp !== info.episode - 1) || (!prev && !firstEpisode)) {
+  const required = info.supplement ? info.episode : info.episode - 1;
+  const firstEpisode = !info.supplement && (info.episode === 0 || info.episode === 1);
+  if ((prev && prevEp !== required) || (!prev && !firstEpisode)) {
     log.warn(
-      `dear 摘要链不连续：现有覆盖到第 ${prevEp} 话，当前是第 ${info.episode} 话；` +
+      `dear 摘要链不连续：现有覆盖到第 ${prevEp} 话，当前是${label}；` +
         "拒绝跳话更新，请用历史重建脚本补齐中间话。",
     );
     return;
@@ -216,7 +220,7 @@ async function updateDearSummary(
           .map(([jp, zh]) => `${jp}|${zh}`)
           .join("\n")}\n\n`
       : "") +
-    `第 ${info.episode} 话的原文与译文（格式 说话人|原文|译文）：\n${body}`;
+    `${label}的原文与译文（格式 说话人|原文|译文）：\n${body}`;
   try {
     const raw = await chat(
       prompt,

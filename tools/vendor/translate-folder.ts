@@ -41,7 +41,10 @@ async function translateFolder(
   for (const entry of entries) {
     if (entry.name.endsWith(".csv")) files.push(entry);
   }
-  files.sort((a, b) => a.name.localeCompare(b.name));
+  // 补充篇 037-01 要排在主篇 037 之后（"-" 比 "." 小，直接比名字会反过来），
+  // 否则补充篇先翻、把 dear 摘要链推到 37，主篇反而拿不到摘要。
+  const sortKey = (name: string) => name.replace(/-(\d+)\.csv$/, ".csv-$1");
+  files.sort((a, b) => sortKey(a.name).localeCompare(sortKey(b.name)));
   log.info("Found " + files.length + " csv files to translate");
 
   let consecutiveFailures = 0;

@@ -27,6 +27,8 @@ export interface StoryInfo {
   episode: number;
   card: string;
   batch: string;
+  /** dear 补充篇（如 037-01，游戏内的 37.5 话）：并入第 episode 话，排在主篇之后 */
+  supplement?: boolean;
 }
 
 /**
@@ -240,9 +242,12 @@ export function summaryBlock(
   if (info.type !== "dear" || !info.character) return "";
   const entry = loadDearSummaries()[info.character];
   if (!entry || !entry.summary) return "";
-  if (info.episode >= 0 && entry.through_episode !== info.episode - 1) {
+  // 主篇要求摘要刚好到上一话；补充篇（37.5 话）要求主篇已在摘要里，即到第 N 话
+  const required = info.supplement ? info.episode : info.episode - 1;
+  if (info.episode >= 0 && entry.through_episode !== required) {
     log.warn(
-      `dear 摘要覆盖到第 ${entry.through_episode} 话，但当前是第 ${info.episode} 话——拒绝注入非连续摘要`,
+      `dear 摘要覆盖到第 ${entry.through_episode} 话，但当前是第 ${info.episode} 话` +
+        `${info.supplement ? "补充篇" : ""}——拒绝注入非连续摘要`,
     );
     return "";
   }
@@ -517,6 +522,13 @@ export function parseStory(name: string): StoryInfo {
  */
 export function classifyStory(name: string): StoryInfo {
   const base = name.replace(/\.(csv|txt)$/i, "");
+  const info = classifyBase(base);
+  // 索引和正则都只取前导数字当话数；补充篇标记在这里统一补，不依赖索引是否收录
+  if (info.type === "dear" && /\d-\d+$/.test(base)) info.supplement = true;
+  return info;
+}
+
+function classifyBase(base: string): StoryInfo {
   const hit = (storyIndex as Record<string, any>)[base];
   if (hit) return fromIndex(hit);
   if (base.includes("/")) return classifyCanonical(base.split("/"));
