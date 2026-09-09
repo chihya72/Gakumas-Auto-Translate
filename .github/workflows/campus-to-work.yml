@@ -11,6 +11,10 @@ on:
         description: "单次最多处理文件数；留空=50，0=不限"
         required: false
         default: ""
+      retry_failed:
+        description: "重跑「机翻异常」文件：all=全部，2026-09-09=只重跑那天标记的；留空=正常模式"
+        required: false
+        default: ""
   schedule:
     # UTC 00:17-15:17 = Beijing 08:17-23:17
     - cron: "17 0-15 * * *"
@@ -66,4 +70,5 @@ jobs:
           DEFAULT_PREFIX="adv_cidol,adv_csprt,adv_dear,adv_event,adv_live,adv_pevent,adv_pgrowth,adv_presult,adv_produce-refresh,adv_pstory,adv_startup,adv_tower,adv_tutorial,adv_unit"
           python tools/auto_campus_pipeline.py \
             --prefix "${PREFIX:-$DEFAULT_PREFIX}" \
-            --limit "${LIMIT:-50}"
+            --limit "${LIMIT:-50}" \
+            --retry-failed "${{ github.event.inputs.retry_failed }}"

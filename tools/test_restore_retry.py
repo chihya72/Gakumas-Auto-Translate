@@ -116,6 +116,29 @@ def main():
             assert done == set(parts) | {"x.csv"}, done
             os.chdir(old_cwd)
 
+        # --- 3c. 读音标签按词表换、其余原样；引擎没产出的文件按整组计入失败 ---
+        with tempfile.TemporaryDirectory() as tmp:
+            acp.RUBY_TAG_MAP = {"<r\\=コンポーザー>": "<r\\=Composer>"}
+            assert acp.unmask_tags(RUBY, "GAT_TAG_0作曲家GAT_TAG_1的会议") == \
+                "<r\\=Composer>作曲家</r>的会议"
+            rows = [{"id": "0", "text": RUBY, "trans": "<r\\=Composer>作曲家</r>的会议"}]
+            assert acp.validate_rows_html_tags("x.csv", rows) == []
+            rows[0]["trans"] = "作曲家的会议"
+            errs = acp.validate_rows_html_tags("x.csv", rows)
+            assert len(errs) == 1 and "译文='作曲家的会议'" in errs[0], errs
+            acp.RUBY_TAG_MAP = {}
+
+            parts = ["g_01.csv", "g_02.csv"]
+            setup(tmp, {"ok.csv": good_trans(RUBY)})
+            for n in parts + ["poison.csv"]:
+                write_csv(Path(tmp) / "tmp/untranslated" / n, orig_rows(n, RUBY))
+            write_csv(Path(tmp) / "tmp/untranslated/ok.csv", orig_rows("ok.csv", RUBY))
+            done = set()
+            assert acp.restore_csvs({}, done) == {} and done == {"ok.csv"}
+            missing = acp.missing_outputs({"g_01.csv": [[p, 1] for p in parts]}, done)
+            assert set(missing) == {"g_01.csv", "g_02.csv", "poison.csv"}, missing
+            os.chdir(old_cwd)
+
         # --- 4. 网络瞬时故障要重试，不能一次 TCP reset 就崩掉整轮 ---
         acp.NET_BACKOFF = 0          # 测试里不真等
         calls = []

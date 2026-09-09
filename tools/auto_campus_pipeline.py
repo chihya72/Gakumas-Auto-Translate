@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from gakumas_auto_translate.modules import preprocessor
 from gakumas_auto_translate.modules.utils import merge_groups, split_merged
 from gakumas_auto_translate.modules.vendor_sync import sync_vendor_files
+from tools.seed_work_repo import INIT_STAGE, issue_body, repo_path_of
 
 CAMPUS_REPO = "DreamGallery/Campus-adv-txts"
 CAMPUS_DIR = "Resource"
@@ -34,6 +35,8 @@ ECHO_MARKERS = ("REF|", "TERM|", "角色卡", "剧情摘要", "术语表")
 TEXT_LINE_RE = re.compile(r"(?:message|narration|choice) text=|title title=")
 # 引擎每写完一个译文文件打的日志行（translate-folder.ts）
 OUTPUT_RE = re.compile(r"Output to (.+\.csv)\s*$")
+# 反复失败、需要人工处理的文件在工作仓打的标签；--retry-failed 按它找回来重跑
+FAILED_LABEL = "机翻异常"
 ROOT = Path(__file__).resolve().parents[1]
 VENDOR_SRC = ROOT / "tools/vendor"
 PRETRANS_DIR = ROOT / "GakumasPreTranslation"
@@ -367,23 +370,27 @@ def requeue_failures(failures, manifest, done):
             done.discard(member)
 
 
-def mark_failed(repo, failures):
+def mark_failed(repo, failures, already_marked=()):
     """给反复失败的文件在工作仓开一个标记 issue，不传 CSV。
 
     既让人看得见，也让去重认得它（known_files 是认 issue 标题的），
-    不会下一轮又把它当新文件重翻一次。
+    不会下一轮又把它当新文件重翻一次。--retry-failed 重跑再失败的文件
+    已经有标记 issue，不再开第二个。
     """
-    subprocess.run(["gh", "label", "create", "机翻异常", "-R", repo, "--force"],
+    subprocess.run(["gh", "label", "create", FAILED_LABEL, "-R", repo, "--force"],
                    capture_output=True)
     for name, reason in sorted(failures.items()):
         title = name[:-len(".csv")] if name.endswith(".csv") else name
+        if title in already_marked:
+            print(f"   仍失败，保留原标记 issue: {title}")
+            continue
         body = (
             f"机翻连续 {RETRY_ROUNDS} 轮未通过校验，未入库。\n\n"
             f"原因：{reason}\n\n需要人工处理。"
         )
         try:
             run(["gh", "issue", "create", "-R", repo, "--title", title,
-                 "--body", body, "--label", "机翻异常"])
+                 "--body", body, "--label", FAILED_LABEL])
         except subprocess.CalledProcessError:
             print(f"!! 标记 issue 创建失败，下轮会重试该文件: {title}")
 
@@ -392,12 +399,34 @@ def tag_signature(text):
     return TAG_RE.findall(text or "")
 
 
+def ruby_tag_map():
+    """name_dictionary 里成对带标签的词条，如
+    `<r\\=プリマステラ>一番星</r>` → `<r\\=Prima Stella>启明星</r>`，
+    取出开标签的映射 {日文读音标签: 译文读音标签}。
+    标签在送模型前已被掩码，所以读音只能在还原时换；词条本体（一番星→启明星）
+    仍由引擎术语表负责。"""
+    try:
+        with (ROOT / "name_dictionary.json").open(encoding="utf-8") as f:
+            entries = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    mapping = {}
+    for jp, zh in entries.items():
+        a, b = TAG_RE.match(jp), TAG_RE.match(zh)
+        if a and b and a.group(0) != b.group(0):
+            mapping[a.group(0)] = b.group(0)
+    return mapping
+
+
+RUBY_TAG_MAP = ruby_tag_map()
+
+
 def unmask_tags(source_text, translated_text):
     out = translated_text or ""
     # 倒序替换：先换 GAT_TAG_10 再换 GAT_TAG_1，避免前缀误命中
     tags = tag_signature(source_text)
     for i in range(len(tags) - 1, -1, -1):
-        out = out.replace(f"GAT_TAG_{i}", tags[i])
+        out = out.replace(f"GAT_TAG_{i}", RUBY_TAG_MAP.get(tags[i], tags[i]))
     return out
 
 
@@ -410,16 +439,46 @@ def validate_rows_html_tags(filename, rows):
         trans = row.get("trans", "")
         if not trans:
             continue
-        src_tags = tag_signature(row.get("text", ""))
+        # 读音标签按词表换过，期望值也要换；其余标签必须原样
+        expected = [RUBY_TAG_MAP.get(t, t) for t in tag_signature(row.get("text", ""))]
         trans_tags = tag_signature(trans)
-        if src_tags != trans_tags:
+        if expected != trans_tags:
+            # 把译文一起打出来：只看签名查不出模型到底把标签弄成了什么
             errors.append(
-                f"{filename}:{idx} 标签不一致 src={src_tags} trans={trans_tags}"
+                f"{filename}:{idx} 标签不一致 src={expected} trans={trans_tags} 译文={trans!r}"
             )
         echoed = next((m for m in ECHO_MARKERS if m in trans), None)
         if echoed:
             errors.append(f"{filename}:{idx} 回显了上下文块（含 {echoed!r}）: {trans[:60]}")
     return errors
+
+
+def missing_outputs(manifest, done):
+    """引擎正常退出后仍没有输出的输入文件 → {文件名: 原因}。
+
+    入口脚本会跳过让模型出错的单个文件（正文为空、解析不出行）；这些文件没有
+    输出，不会被 restore 看到，靠这里进入同一条重翻 → 标记的路。合并组按整组算。
+    """
+    src = PRETRANS_DIR / "tmp/untranslated"
+    dst = PRETRANS_DIR / "tmp/translated"
+    missing = {}
+    for f in sorted(src.glob("*.csv")):
+        if f.name in done or (dst / f.name).exists():
+            continue
+        for member in group_members(f.name, manifest):
+            if member not in done:
+                missing[member] = "引擎未产出译文（模型输出为空或无法解析，见 Actions 日志）"
+    return missing
+
+
+def failed_issues(repo, date):
+    """open 的「机翻异常」issue → {文件名: issue 号}。date 为 all 或 YYYY-MM-DD（UTC 创建日）。"""
+    items = json.loads(out([
+        "gh", "issue", "list", "-R", repo, "--state", "open", "--label", FAILED_LABEL,
+        "--limit", "1000", "--json", "number,title,createdAt",
+    ]) or "[]")
+    return {i["title"]: i["number"] for i in items
+            if date == "all" or i["createdAt"].startswith(date)}
 
 
 def main():
@@ -433,18 +492,30 @@ def main():
         help="逗号分隔的前缀白名单，命中任一即处理（如 adv_cidol,adv_csprt）")
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument(
+        "--retry-failed", default="",
+        help="重跑工作仓里标了「机翻异常」的文件：all=全部，YYYY-MM-DD=只重跑那天标记的；"
+             "留空=正常模式（Campus 新增）")
     args = ap.parse_args()
     # 引擎日志是逐行透传的，自己的进度行也得逐行刷出来，否则 Actions 里顺序乱
     sys.stdout.reconfigure(line_buffering=True)
 
-    remote = campus_file_list(args.campus_repo, args.campus_dir)
-    known = known_files(args.work_repo, args.work_branch)
-    prefixes = tuple(p.strip() for p in args.prefix.split(",") if p.strip())
-    new = sorted(f for f in remote if f.startswith(prefixes) and f not in known)
-    if args.limit:
-        new = new[:args.limit]
-
-    print(f"campus 共 {len(remote)} 个 txt，已知 {len(known)}，新增 {len(new)}")
+    # {文件名: 机翻异常 issue 号}；正常模式为空
+    failed = {}
+    if args.retry_failed:
+        failed = failed_issues(args.work_repo, args.retry_failed)
+        new = sorted(t + ".txt" for t in failed)
+        print(f"重跑「{FAILED_LABEL}」（{args.retry_failed}）：{len(new)} 个")
+        if not new:
+            print("没有待重跑的文件，结束")
+    else:
+        remote = campus_file_list(args.campus_repo, args.campus_dir)
+        known = known_files(args.work_repo, args.work_branch)
+        prefixes = tuple(p.strip() for p in args.prefix.split(",") if p.strip())
+        new = sorted(f for f in remote if f.startswith(prefixes) and f not in known)
+        if args.limit:
+            new = new[:args.limit]
+        print(f"campus 共 {len(remote)} 个 txt，已知 {len(known)}，新增 {len(new)}")
     for name in new:
         print(" ", name)
     if args.dry_run or not new:
@@ -514,6 +585,14 @@ def main():
                         "--push", "--issues",
                         "--raw-dir", str(Path.cwd() / "todo/untranslated/txt"),
                     ], cwd=str(ROOT))
+                    # 重跑成功的文件：把它的「机翻异常」issue 原地改回正常认领 issue。
+                    # seed 看到同名 issue 会跳过建新的，所以这一步只能在这里做。
+                    for f in sorted(fresh):
+                        title = f[:-len(".csv")]
+                        if title in failed:
+                            run(["gh", "issue", "edit", str(failed[title]), "-R", args.work_repo,
+                                 "--remove-label", FAILED_LABEL, "--add-label", INIT_STAGE,
+                                 "--body", issue_body(title, repo_path_of(f))])
                 except subprocess.CalledProcessError as exc:
                     # 推送失败不能打断还在跑的引擎；这批文件留在 done-seeded 里，
                     # 下一个文件翻完再一起推
@@ -531,6 +610,9 @@ def main():
                 if code != 0:
                     translation_error = subprocess.CalledProcessError(code, "translate:folder")
                     print("!! 翻译引擎已停止；失败前完成的译文已逐个推送")
+                else:
+                    # 引擎正常跑完却没输出的 = 被入口脚本跳过的毒文件，走重翻/标记
+                    failures.update(missing_outputs(manifest, done))
                 # 引擎本身挂了（余额/认证/参数），重试只会再挂一次，不必烧钱
                 if not failures or translation_error or attempt == RETRY_ROUNDS:
                     break
@@ -539,7 +621,7 @@ def main():
             stories = sorted(seeded_stories)
             if failures:
                 print(f"!! {len(failures)} 个文件重翻 {RETRY_ROUNDS} 轮仍未通过校验，标记待人工处理")
-                mark_failed(args.work_repo, failures)
+                mark_failed(args.work_repo, failures, already_marked=set(failed))
             if translation_error:
                 raise SystemExit(
                     f"翻译中途失败；已推送 {len(stories)} 个剧情组，"

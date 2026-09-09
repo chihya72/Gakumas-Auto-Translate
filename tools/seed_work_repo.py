@@ -179,6 +179,20 @@ def push_files(repo, plan, raw_dir="", csv_src=CSV_SRC, refresh=False):
                 raise
 
 
+def issue_body(title, rpath):
+    """认领 issue 的标准 body。双轨认领标记：翻译(tr)/校对(pr)，初始都待认领。
+    管线把「机翻异常」issue 改回正常 issue 时也用它，格式只留一份。"""
+    return (
+        f"文件 `{title}`\n\n"
+        f"<!-- path: {rpath} -->\n"
+        f"<!-- raw_path: raw_txt/{title}.txt -->\n"
+        f"<!-- ai_path: {rpath} -->\n"
+        f"<!-- translated_path: {stage_path(rpath, 'translated_csv')} -->\n"
+        f"<!-- proofread_path: {stage_path(rpath, 'proofread_csv')} -->\n"
+        f"<!-- tr:: -->\n<!-- pr:: -->"
+    )
+
+
 def make_issues(repo, plan):
     # 每个文件(话)一个 issue，标题即文件名 adv_..._NN
     existing = existing_issue_titles(repo)
@@ -188,18 +202,8 @@ def make_issues(repo, plan):
             if title in existing:
                 print(f"   skip issue (exists): {title}")
                 continue
-            # 双轨认领标记：翻译(tr)/校对(pr)，初始都待认领
-            body = (
-                f"文件 `{title}`\n\n"
-                f"<!-- path: {rpath} -->\n"
-                f"<!-- raw_path: raw_txt/{title}.txt -->\n"
-                f"<!-- ai_path: {rpath} -->\n"
-                f"<!-- translated_path: {stage_path(rpath, 'translated_csv')} -->\n"
-                f"<!-- proofread_path: {stage_path(rpath, 'proofread_csv')} -->\n"
-                f"<!-- tr:: -->\n<!-- pr:: -->"
-            )
             run(["gh", "issue", "create", "-R", repo, "--title", title,
-                 "--body", body, "--label", INIT_STAGE])
+                 "--body", issue_body(title, rpath), "--label", INIT_STAGE])
 
 
 def main():

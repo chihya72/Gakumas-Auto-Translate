@@ -366,7 +366,9 @@ async function translateCsvTextInfo(
   const translated = DialogueListDeser.deserialize(gptOutput, pending.length);
 
   // 一个有效行号都没有时，原样重试只会再次消耗同一份输入和思考 token。
+  // 把原始输出留在日志里：否则事后只知道「解析不出行」，不知道模型到底写了什么。
   if (translated.size === 0) {
+    log.error(`模型原始输出（前 800 字符）:\n${gptOutput.slice(0, 800)}`);
     throw new Error(
       `模型响应未包含任何有效译文行（0/${pending.length}），已停止原样重试以避免重复扣费`,
     );
