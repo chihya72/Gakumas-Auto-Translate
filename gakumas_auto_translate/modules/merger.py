@@ -11,6 +11,15 @@ from .utils import clean_html_tags, process_unit_files_in_folder
 from .config import get_translation_mode  # 添加导入
 
 
+def replace_txt_names(content, name_dict):
+    """完整读取 name 属性后一次查表，避免短名称误伤长名称或重复翻译。"""
+    return re.sub(
+        r'(^|\s)(name=[ \t]*)([^\s\]]+)',
+        lambda m: m.group(1) + m.group(2) + (name_dict.get(m.group(3)) or m.group(3)),
+        content,
+    )
+
+
 def merge_translations():
     """合并翻译文件的主函数"""
     # 步骤1: 检查目录文件一致性
@@ -380,39 +389,10 @@ def process_bilingual():
                     file_has_errors = True
                     continue # 跳过处理此条目
 
-            # 翻译name属性 (无论row_id是什么类型)
-            if name and name_dict:
-                translated_name = name
-                # 按照键长度从长到短排序，优先匹配较长的name
-                found_name_translation = None
-                for dict_name in sorted(name_dict.keys(), key=len, reverse=True):
-                    if name == dict_name:
-                        found_name_translation = name_dict[dict_name]
-                        break
-                
-                if found_name_translation and translated_name != found_name_translation:
-                    translated_name = found_name_translation
-                
-                if translated_name != name: # 如果找到了不同的翻译
-                    try:
-                        name_pattern = re.compile(
-                            r'(name=)%s' % re.escape(name),
-                        )
-                        new_content = content # 使用临时变量进行替换，避免影响后续name替换
-                        new_content = name_pattern.sub(lambda m: f'{m.group(1)}{translated_name}', new_content) # 直接替换name值，不加引号，因为name值通常没有引号
-
-                        if new_content != content:
-                            content = new_content
-                            # 不增加 changes_count，因为它不是文本内容的替换
-                    except Exception as e:
-                         print(f"处理文件 {csv_file} 中ID为 {row_id} 的name属性时出错: {e}")
-                         error_rows.append([csv_file, row_id, "处理name属性错误", name, translated_name, str(e)])
-                         has_errors = True
-                         file_has_errors = True
-
         # 如果文件处理过程中没有错误，则写入新文件
         if not file_has_errors:
             try:
+                content = replace_txt_names(content, name_dict)
                 with open(output_path, 'w', encoding='utf-8') as f:
                     f.write(content)
                 print(f"已生成中日双语文件: {output_path} (进行了 {changes_count} 处文本替换)")
@@ -582,37 +562,10 @@ def process_chinese_only():
                 file_has_errors = True
                 continue
 
-            # 翻译name属性 (无论row_id是什么类型)
-            if name and name_dict:
-                translated_name = name
-                # 按照键长度从长到短排序，优先匹配较长的name
-                found_name_translation = None
-                for dict_name in sorted(name_dict.keys(), key=len, reverse=True):
-                    if name == dict_name:
-                        found_name_translation = name_dict[dict_name]
-                        break
-                
-                if found_name_translation and translated_name != found_name_translation:
-                    translated_name = found_name_translation
-                
-                if translated_name != name: # 如果找到了不同的翻译
-                    try:
-                        name_pattern = re.compile(
-                            r'(name=)%s' % re.escape(name),
-                        )
-                        new_content = name_pattern.sub(lambda m: f'{m.group(1)}{translated_name}', content)
-                        if new_content != content:
-                            content = new_content
-                            # 不增加 changes_count，因为它不是文本内容的替换
-                    except Exception as e:
-                         print(f"处理文件 {csv_file} 中ID为 {row_id} 的name属性时出错: {e}")
-                         error_rows.append([csv_file, row_id, "处理name属性错误", name, translated_name, str(e)])
-                         has_errors = True
-                         file_has_errors = True
-
         # 如果文件处理过程中没有错误，则写入新文件
         if not file_has_errors:
             try:
+                content = replace_txt_names(content, name_dict)
                 with open(output_path, 'w', encoding='utf-8') as f:
                     f.write(content)
                 print(f"已生成纯中文文件: {output_path} (进行了 {changes_count} 处文本替换)")
