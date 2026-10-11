@@ -7,6 +7,7 @@ import shutil
 from pathlib import Path
 from . import config
 from .config import get_dump_txt_path, configure_directories
+from .skip_list import load_untranslatable_files
 
 def check_new_files():
     """对比是否有新增txt文件"""
@@ -29,8 +30,10 @@ def check_new_files():
     data_files = set(f for f in os.listdir("./data") if f.endswith(".txt"))
     dump_files = set(f for f in os.listdir(dump_txt_path) if f.endswith(".txt"))
 
-    # 找出新增文件
-    new_files = dump_files - data_files
+    # 找出新增文件，排除预处理确认没有可翻译内容的文件。
+    skipped_files = load_untranslatable_files()
+    print(f"已按跳过名单排除 {len(dump_files & skipped_files)} 个剧情文本。")
+    new_files = dump_files - data_files - skipped_files
     if not new_files:
         print("没有发现新增文件")
         return False
@@ -65,13 +68,16 @@ def check_new_files():
 def download_new_files():
     from .octo_source import OctoClient
 
+    skipped_files = load_untranslatable_files()
     client = OctoClient(config.get_source_settings())
     manifest = client.manifest()
     config.remember_octo_version(manifest['version'])
     destination = Path('./todo/untranslated/txt')
     known = {path.name for directory in (Path('./data'), destination) for path in directory.glob('*.txt')}
+    print(f"已按跳过名单排除 {sum(item['name'] in skipped_files for item in manifest['resources'])} 个剧情文本。")
     pending = [item for item in manifest['resources']
-               if item['name'].startswith('adv_') and item['name'].endswith('.txt') and item['name'] not in known]
+               if item['name'].startswith('adv_') and item['name'].endswith('.txt')
+               and item['name'] not in skipped_files and item['name'] not in known]
     print(f"发现 {len(pending)} 个尚未收录的剧情文本。")
     if not pending:
         return False

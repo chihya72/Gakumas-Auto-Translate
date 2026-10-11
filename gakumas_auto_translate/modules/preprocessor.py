@@ -9,6 +9,7 @@ import json
 import shutil
 from pathlib import Path
 from .utils import remove_r_tags_inplace, clean_html_tags
+from .skip_list import add_untranslatable_file
 
 MESSAGE_TEXT_RE = re.compile(r'\[message text=(.*?)(?=\s+(?:name|hide|isInner|se|clip)=|\])')
 MESSAGE_NAME_RE = re.compile(r'(?:^|\s)name=\s*([^\s\]]+)')
@@ -137,6 +138,8 @@ def preprocess_txt_files(preserve_html=False):
                 print(f"已去除<\\r=></r>标签: {dict_output_path}")
         else:
             print(f"跳过文件 {filename}，未找到可翻译内容")
+            if add_untranslatable_file(filename):
+                print(f"已加入下载跳过名单：{filename}")
 
     if preserve_html:
         print("\n保标签预处理完成，跳过字典替换和HTML清理")
