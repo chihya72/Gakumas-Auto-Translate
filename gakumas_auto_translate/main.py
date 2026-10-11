@@ -3,6 +3,7 @@ Gakumas Auto Translate 主程序
 用于自动翻译游戏文本的工具
 """
 
+import argparse
 from .modules import config, checker, preprocessor, translator, merger, cleaner
 
 def print_menu():
@@ -10,7 +11,7 @@ def print_menu():
     # 获取当前翻译模式
     mode_display = config.get_translation_mode_display()
     print(f"\n==== Gakumas Auto Translate (当前模式: {mode_display}) ====")
-    print("1. 检查是否有新增未翻译文本")
+    print("1. 下载／检查新增未翻译文本（" + ("Octo/CDN" if config.get_source_mode() == 'octo' else "本地目录") + "）")
     print("2. 预处理待翻译的原始文本（包含自动人名替换）")
     print("3. 翻译csv文件")
     print("4. 合并翻译文件")
@@ -21,6 +22,8 @@ def print_menu():
 
 def check_config():
     """检查配置是否有效"""
+    if config.get_source_mode() == 'octo':
+        return True
     dump_txt_path = config.get_dump_txt_path()
     if not dump_txt_path:
         print("\n⚠️ 警告：未找到有效的dump_txt路径配置")
@@ -32,14 +35,19 @@ def main():
     """主程序入口"""
     # 程序启动时自动加载配置文件，但不再主动提示
     config.load_config()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--step', type=int, choices=[1, 2, 3, 4, 5, 6, 9], help='直接执行一个菜单步骤')
+    arguments = parser.parse_args()
     
     while True:
         print_menu()
-        choice = input("请输入选项数字: ").strip()
+        choice = str(arguments.step) if arguments.step is not None else input("请输入选项数字: ").strip()
 
         if choice == '1':
             # 功能1需要访问dump_txt_path，所以需要检查配置
             if not check_config():
+                if arguments.step is not None:
+                    raise RuntimeError('本地解包目录不可用，请使用第 9 项配置')
                 continue
             checker.check_new_files()
         elif choice == '2':
@@ -61,7 +69,7 @@ def main():
             # 配置目录并确保 config.json 已创建
             dump_txt_path = config.configure_directories()
             if dump_txt_path:
-                print(f"✅ 配置成功！dump_txt路径: {dump_txt_path}")
+                print(f"✅ 配置成功！资源来源: {config.get_source_mode()}；目录: {dump_txt_path}")
                 print("配置已保存到 config.json")
             else:
                 print("❌ 配置失败，请重试")
@@ -70,6 +78,8 @@ def main():
             break
         else:
             print("无效的输入，请重新选择")
+        if arguments.step is not None:
+            return
 
 if __name__ == "__main__":
     main()

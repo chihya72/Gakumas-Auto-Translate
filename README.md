@@ -53,17 +53,29 @@ run.py                        # 快速启动脚本
 
 ### 初始设置
 
-1. **配置并检测所需目录**（选项9）
-   - 设置数据存储目录
-   - 配置dump_txt文件路径（游戏解包文件的位置）
+第 1 步默认从游戏 Octo API 获取完整资源清单，并从清单指定的 CDN 下载新增 `adv_*.txt`，方式与 [gakumas-SRTSubtitle](https://github.com/chihya72/gakumas-SRTSubtitle) 相同。无需先运行本地解包工具或启动游戏。
+
+下载使用 Python 3.10+ 和以下依赖：
+
+```powershell
+python -m pip install -r resource-requirements.txt
+```
+
+原始日文保存到 `todo\untranslated\txt`，不会写入存放已实装译文的 `data`。`data` 和待处理目录中已有的同名文件会跳过，保留人工译文和待处理原稿。下载失败时保留成功文件，下次第 1 步补齐失败文件；不自动调用机翻。
+
+选项 9 可以切换为本地解包目录，继续使用原来的 `dump_txt_path`。配置文件中的 `source_mode` 为 `octo` 或 `local`；`octo_version` 默认 205100，每次按 `+100` 探测后续 20 个候选，并记住可用版本；`octo_version_probes` 和 `download_workers` 可调整。完整清单用于判断缺失文件，实际文件只增量下载，已有剧情不会因资源更新自动覆盖。
+
+主页语音项目内置同一实现的 `octo_source.py` 下载模块，通过自己的相对路径配置读取，不依赖本项目、SRTSubtitle 仓库或其缓存来下载 ACB。
 
 ### 翻译工作流程
 
-1. **检查新增未翻译文本**（选项1）
+1. **下载／检查新增未翻译文本**（选项1）
    ```
-   # 比较dump_txt和data目录，识别需要翻译的新文件
-   # 自动创建todo目录结构并复制新文件
+   # 默认查询 Octo/CDN，下载 data 和待处理目录中尚未存在的剧情
+   # 本地来源则比较 dump_txt 和 data，复制新增文本
    ```
+
+   也可直接执行 `python run.py --step 1`。完成后按原流程执行第 2～5 步。
 
 2. **预处理文本为CSV**（选项2）
    ```
@@ -186,8 +198,8 @@ AI 机翻不再孤立翻译每一批对话。机制分两层：**角色卡与术
 
 ### 前置要求
 
-1. Python 3.6+
-2. 已解包的游戏文本文件（使用[Gakuen-idolmaster-ab-decrypt](https://github.com/nijinekoyo/Gakuen-idolmaster-ab-decrypt.git)工具）
+1. Python 3.10+
+2. 默认来源需要可访问游戏 Octo API/CDN；本地来源才需要已解包文本（[Gakuen-idolmaster-ab-decrypt](https://github.com/nijinekoyo/Gakuen-idolmaster-ab-decrypt.git)）
 3. Git（用于克隆翻译工具仓库）
 4. [SCPreTranslation](https://github.com/ShinyGroup/SCPreTranslation.git)工具（在脚本中被称为GakumasPreTranslation）
 5. Node.js和Yarn（用于运行翻译工具）
@@ -220,7 +232,7 @@ AI 机翻不再孤立翻译每一批对话。机制分两层：**角色卡与术
 - 确保已正确设置翻译API密钥（如DeepL）
 - 翻译前请检查人名字典是否需要更新
 - 建议定期备份data目录的内容
-- 游戏文本需要先使用Gakuen-idolmaster-ab-decrypt工具进行解包
+- Octo/CDN 来源无需预先解包；本地来源使用已解包的 TXT 目录
 - 中日双语模式会用特殊格式标记原文和译文，可能需要游戏支持此格式
 
 ## 常见问题

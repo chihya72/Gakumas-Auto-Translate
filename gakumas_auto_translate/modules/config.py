@@ -10,17 +10,23 @@ from .utils import create_sample_dictionary, ensure_dir_exists
 # 全局配置变量
 dump_txt_path = None
 translation_mode = "bilingual"  # 翻译模式：bilingual（双语）或 chinese（纯中文）
+source_mode = "octo"  # octo（游戏 CDN）或 local（本地解包目录）
 # 配置文件路径
 CONFIG_FILE = "./config.json"
 
 def load_config():
     """从配置文件加载设置"""
-    global dump_txt_path, translation_mode
+    global dump_txt_path, translation_mode, source_mode
     
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
                 config = json.load(f)
+                translation_mode = config.get('translation_mode', 'bilingual')
+                source_mode = config.get('source_mode', 'octo')
+                if source_mode == 'octo':
+                    dump_txt_path = config.get('dump_txt_path')
+                    return True
                 if 'dump_txt_path' in config and os.path.exists(config['dump_txt_path']):
                     dump_txt_path = config['dump_txt_path']
                     # 加载翻译模式配置，默认为双语模式
@@ -40,14 +46,11 @@ def load_config():
 
 def save_config():
     """保存设置到配置文件"""
-    global dump_txt_path, translation_mode
-    
-    config = {
-        'dump_txt_path': dump_txt_path,
-        'translation_mode': translation_mode
-    }
+    global dump_txt_path, translation_mode, source_mode
     
     try:
+        config = get_source_settings()
+        config.update(dump_txt_path=dump_txt_path, translation_mode=translation_mode, source_mode=source_mode)
         with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
             json.dump(config, f, ensure_ascii=False, indent=4)
             return True
@@ -57,7 +60,18 @@ def save_config():
 
 def configure_directories():
     """配置并检测所需目录"""
-    global dump_txt_path
+    global dump_txt_path, source_mode
+
+    choice = input(f"资源来源：1. Octo/CDN（当前：{source_mode}） 2. 本地解包目录；回车保留：").strip()
+    if choice not in {'', '1', '2'}:
+        print("无效的来源选项")
+        return None
+    if choice:
+        source_mode = 'octo' if choice == '1' else 'local'
+    if source_mode == 'octo':
+        save_config()
+        print("第 1 步将直接下载新增剧情到 todo\\untranslated\\txt。")
+        return './todo/untranslated/txt'
     
     # 检查/创建data目录
     data_dir = "./data"
@@ -108,6 +122,24 @@ def get_dump_txt_path():
         load_config()
         
     return dump_txt_path
+
+def get_source_mode():
+    return source_mode
+
+
+def get_source_settings():
+    if os.path.isfile(CONFIG_FILE):
+        with open(CONFIG_FILE, encoding='utf-8-sig') as file:
+            return json.load(file)
+    return {}
+
+
+def remember_octo_version(version):
+    settings = get_source_settings()
+    settings['octo_version'] = version
+    with open(CONFIG_FILE, 'w', encoding='utf-8') as file:
+        json.dump(settings, file, ensure_ascii=False, indent=4)
+
 
 def set_dump_txt_path(path):
     """设置dump_txt路径"""
