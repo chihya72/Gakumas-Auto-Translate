@@ -145,35 +145,23 @@ def ensure_dir_exists(dir_path):
     return False
 
 def process_unit_text(text):
-    """处理指定剧情的文本标签。
-    
-    如果文本以[narration text=或[message text=开头，
-    则去除含有'―'属性的r标签，但保留标签内容
-    """
-    if text.startswith('[narration text=') or text.startswith('[message text='):
-        pattern = r'<r\\=([^>]*)>(.*?)</r>'
-        
-        def repl(match):
-            tag_attrs = match.group(1)  # 标签属性部分
-            tag_content = match.group(2)  # 标签内文本
+    """将旁白和对话的 r 标签属性里的 U+2015 替换为 U+2014。"""
+    if not text.startswith(('[narration text=', '[message text=')):
+        return text
 
-            if '―' in tag_attrs:
-                # 标签属性中包含'―'，去除标签，保留文本
-                return tag_content
-            else:
-                return match.group(0)
-
-        new_text = re.sub(pattern, repl, text)
-        return new_text
-    return text
+    return re.sub(
+        r'(<r\\=)([^<>]*―[^<>]*)(>.*?</r>)',
+        lambda match: match[1] + match[2].replace('―', '—') + match[3],
+        text,
+    )
 
 def process_unit_file(file_path):
-    """逐行处理单个剧情 TXT 的特殊标签。"""
+    """逐行替换剧情 TXT 的 r 标签属性里的横线。"""
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
+        with open(file_path, 'r', encoding='utf-8', newline='') as f:
             lines = f.readlines()
         new_lines = [process_unit_text(line) for line in lines]
-        with open(file_path, 'w', encoding='utf-8') as f:
+        with open(file_path, 'w', encoding='utf-8', newline='') as f:
             f.writelines(new_lines)
         print(f'已处理文件: {file_path}')
         return True
@@ -196,8 +184,8 @@ def process_unit_files_in_folder(folder_path):
                     processed_count += 1
     
     if processed_count > 0:
-        print(f"已处理 {processed_count} 个需要清理特殊标签的剧情文件")
+        print(f"已处理 {processed_count} 个剧情文件的 r 标签横线")
     else:
-        print("未找到需要清理特殊标签的剧情文件")
+        print("未找到需要处理 r 标签横线的剧情文件")
     
     return processed_count
