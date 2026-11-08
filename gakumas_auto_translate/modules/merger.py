@@ -404,7 +404,7 @@ def process_bilingual():
             print(f"文件 {csv_file} 处理过程中存在错误，跳过生成输出文件")
     
     # 在处理完所有文件后调用 process_unit_files_in_folder (总是处理)
-    print("\n正在处理adv_unit_开头的文件...")
+    print("\n正在清理指定剧情的特殊 r 标签...")
     process_unit_files_in_folder(output_dir) # 无条件调用
     
     # 如果有错误，写入错误报告
@@ -577,7 +577,7 @@ def process_chinese_only():
             print(f"文件 {csv_file} 处理过程中存在错误，跳过生成输出文件")
     
     # 在处理完所有文件后调用 process_unit_files_in_folder (总是处理)
-    print("\n正在处理adv_unit_开头的文件...")
+    print("\n正在清理指定剧情的特殊 r 标签...")
     process_unit_files_in_folder(output_dir) # 无条件调用
     
     # 如果有错误，写入错误报告

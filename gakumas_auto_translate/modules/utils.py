@@ -145,7 +145,7 @@ def ensure_dir_exists(dir_path):
     return False
 
 def process_unit_text(text):
-    """处理文本中特定标签，用于adv_unit_开头的文件
+    """处理指定剧情的文本标签。
     
     如果文本以[narration text=或[message text=开头，
     则去除含有'―'属性的r标签，但保留标签内容
@@ -168,7 +168,7 @@ def process_unit_text(text):
     return text
 
 def process_unit_file(file_path):
-    """处理单个adv_unit_开头的文件"""
+    """逐行处理单个剧情 TXT 的特殊标签。"""
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             lines = f.readlines()
@@ -182,18 +182,22 @@ def process_unit_file(file_path):
         return False
 
 def process_unit_files_in_folder(folder_path):
-    """处理文件夹中所有adv_unit_开头的txt文件"""
+    """处理 adv_unit_ 和 adv_dear_hkne_000-0X-horizontal 的 TXT 文件。"""
     processed_count = 0
     for file in os.listdir(folder_path):
-        if file.startswith('adv_unit_') and file.endswith('.txt'):
+        is_unit = file.startswith('adv_unit_') and file.endswith('.txt')
+        is_hkne_horizontal = re.fullmatch(
+            r'adv_dear_hkne_000-0[0-9]-horizontal\.txt', file
+        ) is not None
+        if is_unit or is_hkne_horizontal:
             file_path = os.path.join(folder_path, file)
             if os.path.isfile(file_path):
                 if process_unit_file(file_path):
                     processed_count += 1
     
     if processed_count > 0:
-        print(f"已处理 {processed_count} 个 adv_unit_ 文件")
+        print(f"已处理 {processed_count} 个需要清理特殊标签的剧情文件")
     else:
-        print("未找到需要处理的 adv_unit_ 文件")
+        print("未找到需要清理特殊标签的剧情文件")
     
     return processed_count
