@@ -30,7 +30,7 @@ import {
 } from "./tm";
 
 const MAX_LINES_PER_CHUNK = 250;
-const NAME_RE = /^adv_dear_([a-z0-9]+)_(\d+)(?:[-_]\d+)?$/i;
+const NAME_RE = /^adv_dear_([a-z0-9]+)_(\d+)(?:[-_]\d+(?:-horizontal)?)?$/i;
 
 interface SelectedCsv {
   key: string;

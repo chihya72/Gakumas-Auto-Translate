@@ -501,7 +501,7 @@ export function parseStory(name: string): StoryInfo {
     };
   }
 
-  m = base.match(/^adv_dear_([a-z0-9]+)_(\d+)(?:-\d+)?$/i);
+  m = base.match(/^adv_dear_([a-z0-9]+)_(\d+)(?:-\d+(?:-horizontal)?)?$/i);
   if (m) {
     return {
       type: "dear",
