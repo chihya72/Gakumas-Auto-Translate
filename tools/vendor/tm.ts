@@ -513,6 +513,9 @@ export function parseStory(name: string): StoryInfo {
     };
   }
 
+  m = base.match(/^adv_((?:live|pgrowth|pstep|startup)_.+)$/);
+  if (m) return classifyCanonical(m[1].split("_"));
+
   return { type: "other", group: base, character: "", episode: -1, card: "", batch: "" };
 }
 
