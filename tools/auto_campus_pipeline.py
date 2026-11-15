@@ -20,6 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from gakumas_auto_translate.modules import preprocessor
+from gakumas_auto_translate.modules.skip_list import add_untranslatable_file, load_untranslatable_files
 from gakumas_auto_translate.modules.utils import merge_groups, split_merged
 from gakumas_auto_translate.modules.vendor_sync import sync_vendor_files
 from tools.seed_work_repo import INIT_STAGE, issue_body, repo_path_of
@@ -150,7 +151,7 @@ def known_files(work_repo, branch):
 
 def download_txts(files, repo, campus_dir):
     """下载并过滤空剧本（无台词的纯演出脚本），与本地菜单2的空文件过滤同构。
-    返回有台词的文件列表。空文件每轮会重新检查一遍（几KB开销，无状态残留）。"""
+    返回有台词的文件列表，并把新发现的空剧本记录到跳过名单。"""
     target = Path("todo/untranslated/txt")
     target.mkdir(parents=True, exist_ok=True)
     kept = []
@@ -162,8 +163,15 @@ def download_txts(files, repo, campus_dir):
                 return resp.read()
 
         data = retry(fetch, f"下载 {name}")
-        if not TEXT_LINE_RE.search(data.decode("utf-8", errors="replace")):
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError:
+            # 交由预处理器尝试其它编码，再决定是否有可翻译内容。
+            text = None
+        if text is not None and not TEXT_LINE_RE.search(text):
             print(f"跳过(无台词): {name}")
+            if add_untranslatable_file(name):
+                print(f"已加入下载跳过名单：{name}")
             continue
         (target / name).write_bytes(data)
         kept.append(name)
@@ -501,18 +509,24 @@ def main():
     sys.stdout.reconfigure(line_buffering=True)
 
     # {文件名: 机翻异常 issue 号}；正常模式为空
+    excluded = load_untranslatable_files()
     failed = {}
     if args.retry_failed:
         failed = failed_issues(args.work_repo, args.retry_failed)
-        new = sorted(t + ".txt" for t in failed)
-        print(f"重跑「{FAILED_LABEL}」（{args.retry_failed}）：{len(new)} 个")
-        if not new:
-            print("没有待重跑的文件，结束")
+        candidates = sorted(t + ".txt" for t in failed)
     else:
         remote = campus_file_list(args.campus_repo, args.campus_dir)
         known = known_files(args.work_repo, args.work_branch)
         prefixes = tuple(p.strip() for p in args.prefix.split(",") if p.strip())
-        new = sorted(f for f in remote if f.startswith(prefixes) and f not in known)
+        candidates = sorted(f for f in remote if f.startswith(prefixes) and f not in known)
+
+    new = [name for name in candidates if name not in excluded]
+    print(f"按排除名单跳过 {len(candidates) - len(new)} 个候选文件")
+    if args.retry_failed:
+        print(f"重跑「{FAILED_LABEL}」（{args.retry_failed}）：{len(new)} 个")
+        if not new:
+            print("没有待重跑的文件，结束")
+    else:
         if args.limit:
             new = new[:args.limit]
         print(f"campus 共 {len(remote)} 个 txt，已知 {len(known)}，新增 {len(new)}")
@@ -538,6 +552,9 @@ def main():
                 print("新增全部为空剧本，无需机翻")
                 return
             preprocessor.preprocess_txt_files(preserve_html=True)
+            if not any(Path("todo/untranslated/csv_dict").glob("*.csv")):
+                print("预处理后没有可翻译文本，结束")
+                return
             ensure_pretranslation_repo()
             ensure_pretranslation_env()
             manifest = prepare_translate_input()

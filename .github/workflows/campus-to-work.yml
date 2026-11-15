@@ -54,6 +54,7 @@ jobs:
         run: python -m pip install pandas
 
       - name: Run pipeline
+        id: pipeline
         run: |
           test -n "$GH_TOKEN" || (echo "Missing secret PIPELINE_PAT" && exit 1)
           # 让 git 复用 gh 的 token 凭据——否则 seed 对工作仓库的 git push 会 128 认证失败
@@ -72,3 +73,25 @@ jobs:
             --prefix "${PREFIX:-$DEFAULT_PREFIX}" \
             --limit "${LIMIT:-50}" \
             --retry-failed "${{ github.event.inputs.retry_failed }}"
+
+      - name: Save newly excluded files
+        if: always() && (steps.pipeline.outcome == 'success' || steps.pipeline.outcome == 'failure')
+        shell: pwsh
+        run: |
+          & git add -- untranslatable_files.json
+          if ($LASTEXITCODE -ne 0) { throw "git add failed: $LASTEXITCODE" }
+          $changed = & git diff --cached --name-only -- untranslatable_files.json
+          if ($LASTEXITCODE -ne 0) { throw "git diff failed: $LASTEXITCODE" }
+          if (-not $changed) { return }
+
+          & git -c 'user.name=github-actions[bot]' -c 'user.email=41898282+github-actions[bot]@users.noreply.github.com' commit -m 'Record untranslatable Campus scripts' -- untranslatable_files.json
+          if ($LASTEXITCODE -ne 0) { throw "git commit failed: $LASTEXITCODE" }
+          for ($attempt = 1; $attempt -le 3; $attempt++) {
+            [string[]]$pullArgs = @('pull', '--rebase', 'origin', $env:GITHUB_REF_NAME)
+            & git @pullArgs
+            if ($LASTEXITCODE -ne 0) { throw "git pull --rebase failed: $LASTEXITCODE" }
+            [string[]]$pushArgs = @('push', 'origin', "HEAD:$env:GITHUB_REF_NAME")
+            & git @pushArgs
+            if ($LASTEXITCODE -eq 0) { return }
+            if ($attempt -eq 3) { throw "git push failed: $LASTEXITCODE" }
+          }

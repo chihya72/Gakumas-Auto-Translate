@@ -1,6 +1,7 @@
 """Verify skipped scripts stay excluded after pending files are cleaned up."""
 
 import io
+from contextlib import redirect_stdout
 import json
 import sys
 import tempfile
@@ -10,6 +11,7 @@ from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from gakumas_auto_translate.modules import checker, config, octo_source, preprocessor, skip_list
+from tools import auto_campus_pipeline
 
 
 class SkipListTests(unittest.TestCase):
@@ -105,6 +107,42 @@ class SkipListTests(unittest.TestCase):
             preprocessor.preprocess_txt_files()
         self.assertIn('こんにちは', output.getvalue())
         self.assertEqual(skip_list.load_untranslatable_files(), set())
+
+
+class CampusSkipListTests(unittest.TestCase):
+    def test_excluded_files_do_not_consume_the_batch_limit(self):
+        excluded = {f'adv_a{index:02d}.txt' for index in range(55)}
+        allowed = [f'adv_z{index:02d}.txt' for index in range(51)]
+        buffer = io.BytesIO()
+        with io.TextIOWrapper(buffer, encoding='utf-8') as output, redirect_stdout(output), \
+             patch.object(sys, 'argv', ['pipeline', '--limit', '50', '--dry-run']), \
+             patch.object(auto_campus_pipeline, 'load_untranslatable_files', return_value=excluded), \
+             patch.object(auto_campus_pipeline, 'campus_file_list', return_value=sorted(excluded) + allowed), \
+             patch.object(auto_campus_pipeline, 'known_files', return_value=set()):
+            auto_campus_pipeline.main()
+            output.flush()
+            names = [line.strip() for line in buffer.getvalue().decode('utf-8').splitlines()
+                     if line.startswith('  adv_')]
+        self.assertEqual(names, allowed[:50])
+
+    def test_retry_ignores_excluded_files(self):
+        with patch.object(sys, 'argv', ['pipeline', '--retry-failed', 'all']), \
+             patch.object(auto_campus_pipeline, 'load_untranslatable_files', return_value={'adv_empty.txt'}), \
+             patch.object(auto_campus_pipeline, 'failed_issues', return_value={'adv_empty': 1}), \
+             patch.object(auto_campus_pipeline, 'download_txts') as download:
+            auto_campus_pipeline.main()
+        download.assert_not_called()
+
+    def test_campus_records_empty_scripts_and_keeps_titles_and_other_encodings(self):
+        files = ['adv_empty.txt', 'adv_title.txt', 'adv_non_utf8.txt']
+        responses = [b'[camera test]', b'[title title=sample]', b'\x82\xa0']
+        with patch.object(Path, 'mkdir'), patch.object(Path, 'write_bytes') as write, \
+             patch.object(auto_campus_pipeline, 'retry', side_effect=responses), \
+             patch.object(auto_campus_pipeline, 'add_untranslatable_file', return_value=True) as record:
+            kept = auto_campus_pipeline.download_txts(files, 'repo', 'Resource')
+        self.assertEqual(kept, files[1:])
+        record.assert_called_once_with(files[0])
+        self.assertEqual(write.call_count, 2)
 
 
 if __name__ == '__main__':
